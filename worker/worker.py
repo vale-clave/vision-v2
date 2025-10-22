@@ -7,6 +7,13 @@ from pathlib import Path
 from shared.settings import settings
 from PIL import Image
 import io
+import torch
+from ultralytics.nn.tasks import WorldModel
+
+# FIX: Añadimos la clase WorldModel a la lista segura de PyTorch
+# para permitir la carga en versiones >= 2.6
+torch.serialization.add_safe_globals([WorldModel])
+
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 FRAMES_QUEUE_KEY = os.getenv("REDIS_FRAMES_QUEUE", "frames_queue")
