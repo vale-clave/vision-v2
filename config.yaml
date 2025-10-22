@@ -1,0 +1,69 @@
+tenants:
+  - id: 1
+    name: "Rogers"
+    cameras:
+      - id: 1
+        name: "Main Area"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/102"
+        fps: 25
+        zones:
+          - id: 1
+            name: "Interior Area"
+            metrics: ["people_inside"]
+            polygon: [[84, 163], [307, 96], [286, 77], [348, 68], [341, 27], [418, 14], [560, 109], [577, 226], [498, 353], [148, 355], [83, 165]]
+            thresholds:
+              occupancy: 30
+          - id: 2
+            name: "Register"
+            metrics: ["dwell", "people_inside"]
+            polygon: [[107, 156], [144, 249], [230, 215], [215, 121], [107, 151]]
+            thresholds:
+              dwell: 60  # seconds
+              occupancy: 5 # threshold for people inside
+      - id: 2
+        name: "Drivers Area"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/202"
+        fps: 30
+        zones:
+          - id: 3
+            name: "Drivers Queue"
+            metrics: ["people_inside"]
+            polygon: [[127, 328], [262, 152], [394, 95], [474, 194], [526, 229], [529, 354], [150, 355], [128, 331]]
+            thresholds:
+              occupancy: 3
+      - id: 4
+        name: "Outside Dining Area"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/402"
+        fps: 30
+        zones:
+          - id: 4
+            name: "Dining Area"
+            metrics: ["people_inside"]
+            polygon: [[134, 92], [150, 67], [202, 71], [257, 114], [340, 128], [517, 355], [137, 355], [133, 94]]
+    
+      - id: 5
+        name: "Break Area"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/502"
+        fps: 30
+        zones:
+          - id: 5
+            name: "Break Area"
+            metrics: ["dwell", "people_inside"]
+            polygon: [[216, 74], [348, 47], [383, 101], [486, 86], [592, 278], [481, 354], [237, 352], [220, 273], [215, 74]]
+            thresholds:
+              occupancy: 2
+
+      - id: 6
+        name: "Inside Dining Area"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1202"
+        fps: 30
+        zones:
+          - id: 6
+            name: "Inside Dining Area"
+            metrics: ["people_inside"]
+            polygon: [[153, 146], [277, 355], [522, 354], [550, 238], [295, 100], [154, 145]]

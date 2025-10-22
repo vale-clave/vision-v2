@@ -1,0 +1,18 @@
+fastapi==0.110.0
+uvicorn[standard]==0.29.0
+redis==5.0.1
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
+pydantic==2.6.4
+pydantic-settings==2.2.1
+sse-starlette==2.1.0
+
+# --- Vision / ML Dependencies ---
+# Fijamos las versiones de torch y torchvision para evitar conflictos
+torch==2.1.0
+torchvision==0.16.0
+ultralytics==8.1.35
+# Añadimos la dependencia que faltaba para el tracker de Ultralytics
+lapx==0.7.0
+opencv-python-headless==4.9.0.80
+shapely==2.0.3

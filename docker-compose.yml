@@ -1,0 +1,251 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  ingest:
+    build: 
+      context: .
+      dockerfile: ingest/Dockerfile
+    env_file: .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+      
+  config_loader:
+    build:
+      context: .
+      dockerfile: shared/Dockerfile
+    command: python3 shared/config_loader.py
+    env_file: .env
+    depends_on:
+      - api 
+
+  capture-cam-1:
+    build:
+      context: .
+      dockerfile: capture/Dockerfile
+    network_mode: "host"
+    environment:
+      - REDIS_URL=redis://localhost:6379/0
+      - OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp
+      - CAMERA_ID=1
+    env_file: .env
+    depends_on:
+      - redis
+      - config_loader
+    restart: unless-stopped
+
+  worker-cam-1:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    # En un Mac, esta opción es ignorada. En un servidor Linux con GPU, es necesaria.
+    runtime: nvidia 
+    environment:
+      # Aseguramos que el contenedor pueda ver todas las GPUs disponibles.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CAMERA_ID=1
+    env_file: .env
+    volumes:
+      - ./weights:/app/weights:ro
+    depends_on:
+      - redis
+      - config_loader
+      - capture-cam-1
+    restart: unless-stopped
+    # Esta sección le pide a Docker que reserve una GPU para este contenedor.
+    # Solo funciona en un entorno de producción con GPU (ej. Swarm o Kubernetes).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  capture-cam-2:
+    build:
+      context: .
+      dockerfile: capture/Dockerfile
+    network_mode: "host"
+    environment:
+      - REDIS_URL=redis://localhost:6379/0
+      - OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp
+      - CAMERA_ID=2
+    env_file: .env
+    depends_on:
+      - redis
+      - config_loader
+    restart: unless-stopped
+
+  worker-cam-2:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    # En un Mac, esta opción es ignorada. En un servidor Linux con GPU, es necesaria.
+    runtime: nvidia
+    environment:
+      # Aseguramos que el contenedor pueda ver todas las GPUs disponibles.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CAMERA_ID=2
+    env_file: .env
+    volumes:
+      - ./weights:/app/weights:ro
+    depends_on:
+      - redis
+      - config_loader
+      - capture-cam-2
+    restart: unless-stopped
+    # Esta sección le pide a Docker que reserve una GPU para este contenedor.
+    # Solo funciona en un entorno de producción con GPU (ej. Swarm o Kubernetes).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  capture-cam-4:
+    build:
+      context: .
+      dockerfile: capture/Dockerfile
+    network_mode: "host"
+    environment:
+      - REDIS_URL=redis://localhost:6379/0
+      - OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp
+      - CAMERA_ID=4
+    env_file: .env
+    depends_on:
+      - redis
+      - config_loader
+    restart: unless-stopped
+
+  worker-cam-4:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    # En un Mac, esta opción es ignorada. En un servidor Linux con GPU, es necesaria.
+    runtime: nvidia
+    environment:
+      # Aseguramos que el contenedor pueda ver todas las GPUs disponibles.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CAMERA_ID=4
+    env_file: .env
+    volumes:
+      - ./weights:/app/weights:ro
+    depends_on:
+      - redis
+      - config_loader
+      - capture-cam-4
+    restart: unless-stopped
+    # Esta sección le pide a Docker que reserve una GPU para este contenedor.
+    # Solo funciona en un entorno de producción con GPU (ej. Swarm o Kubernetes).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  capture-cam-5:
+    build:
+      context: .
+      dockerfile: capture/Dockerfile
+    network_mode: "host"
+    environment:
+      - REDIS_URL=redis://localhost:6379/0
+      - OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp
+      - CAMERA_ID=5
+    env_file: .env
+    depends_on:
+      - redis
+      - config_loader
+    restart: unless-stopped
+
+  worker-cam-5:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    # En un Mac, esta opción es ignorada. En un servidor Linux con GPU, es necesaria.
+    runtime: nvidia
+    environment:
+      # Aseguramos que el contenedor pueda ver todas las GPUs disponibles.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CAMERA_ID=5
+    env_file: .env
+    volumes:
+      - ./weights:/app/weights:ro
+    depends_on:
+      - redis
+      - config_loader
+      - capture-cam-5
+    restart: unless-stopped
+    # Esta sección le pide a Docker que reserve una GPU para este contenedor.
+    # Solo funciona en un entorno de producción con GPU (ej. Swarm o Kubernetes).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  capture-cam-6:
+    build:
+      context: .
+      dockerfile: capture/Dockerfile
+    network_mode: "host"
+    environment:
+      - REDIS_URL=redis://localhost:6379/0
+      - OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp
+      - CAMERA_ID=6
+    env_file: .env
+    depends_on:
+      - redis
+      - config_loader
+    restart: unless-stopped
+
+  worker-cam-6:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    # En un Mac, esta opción es ignorada. En un servidor Linux con GPU, es necesaria.
+    runtime: nvidia
+    environment:
+      # Aseguramos que el contenedor pueda ver todas las GPUs disponibles.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CAMERA_ID=6
+    env_file: .env
+    volumes:
+      - ./weights:/app/weights:ro
+    depends_on:
+      - redis
+      - config_loader
+      - capture-cam-6
+    restart: unless-stopped
+    # Esta sección le pide a Docker que reserve una GPU para este contenedor.
+    # Solo funciona en un entorno de producción con GPU (ej. Swarm o Kubernetes).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
