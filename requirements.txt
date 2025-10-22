@@ -8,9 +8,9 @@ pydantic-settings==2.2.1
 sse-starlette==2.1.0
 
 # --- Vision / ML Dependencies ---
-# Fijamos las versiones de torch y torchvision para evitar conflictos
-torch==2.1.0
-torchvision==0.16.0
+# Dejamos que pip elija la versión compatible con el entorno de Runpod
+torch
+torchvision
 ultralytics==8.1.35
 # Añadimos la dependencia que faltaba para el tracker de Ultralytics
 lapx==0.7.0
