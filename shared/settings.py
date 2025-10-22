@@ -3,8 +3,8 @@ from pydantic import PostgresDsn, RedisDsn
 
 class Settings(BaseSettings):
     database_url: PostgresDsn
-    # Cambiamos el default a 'redis' para que funcione dentro de Docker Compose
-    redis_url: RedisDsn = "redis://redis:6379/0"
+    # Cambiamos el default a 'localhost' para que funcione en el entorno de Runpod
+    redis_url: RedisDsn = "redis://localhost:6379/0"
 
     class Config:
         env_file = ".env"
