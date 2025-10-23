@@ -87,6 +87,38 @@ while True:
     # El método plot() de ultralytics convenientemente devuelve el frame con las cajas dibujadas.
     annotated_frame = results.plot()
 
+    # DIBUJAR POLÍGONOS DE LAS ZONAS
+    for zone_id, zinfo in ZONES.items():
+        # Obtener los puntos del polígono
+        poly_coords = list(zinfo["poly"].exterior.coords)
+        poly_points = np.array(poly_coords, dtype=np.int32).reshape((-1, 1, 2))
+        
+        # Dibujar el polígono con color semi-transparente
+        # Usamos diferentes colores para cada zona
+        colors = {
+            1: (0, 255, 0),    # Verde - Interior Area
+            2: (255, 0, 0),    # Azul - Register
+            3: (0, 165, 255),  # Naranja - Drivers Queue
+            4: (255, 255, 0),  # Cyan - Dining Area Outside
+            5: (255, 0, 255),  # Magenta - Break Area
+            6: (0, 255, 255),  # Amarillo - Inside Dining Area
+        }
+        color = colors.get(zone_id, (255, 255, 255))
+        
+        # Dibujar polígono relleno semi-transparente
+        overlay = annotated_frame.copy()
+        cv2.fillPoly(overlay, [poly_points], color)
+        cv2.addWeighted(overlay, 0.2, annotated_frame, 0.8, 0, annotated_frame)
+        
+        # Dibujar el borde del polígono
+        cv2.polylines(annotated_frame, [poly_points], True, color, 2)
+        
+        # Agregar etiqueta con el nombre de la zona
+        centroid = zinfo["poly"].centroid
+        label = f"Zone {zone_id}: {zinfo['name']}"
+        cv2.putText(annotated_frame, label, (int(centroid.x), int(centroid.y)), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
     # Codificar el frame dibujado a JPEG para la transmisión
     ok, buffer = cv2.imencode('.jpg', annotated_frame)
     if ok:
