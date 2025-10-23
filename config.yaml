@@ -13,7 +13,7 @@ tenants:
             metrics: ["people_inside"]
             polygon: [[84, 163], [307, 96], [286, 77], [348, 68], [341, 27], [418, 14], [560, 109], [577, 226], [498, 353], [148, 355], [83, 165]]
             thresholds:
-              occupancy: 30
+              occupancy: 12
           - id: 2
             name: "Register"
             metrics: ["dwell", "people_inside"]
@@ -47,7 +47,7 @@ tenants:
       - id: 5
         name: "Break Area"
         location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/502"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/302"
         fps: 30
         zones:
           - id: 5
@@ -55,7 +55,7 @@ tenants:
             metrics: ["dwell", "people_inside"]
             polygon: [[216, 74], [348, 47], [383, 101], [486, 86], [592, 278], [481, 354], [237, 352], [220, 273], [215, 74]]
             thresholds:
-              occupancy: 2
+              occupancy: 5
 
       - id: 6
         name: "Inside Dining Area"
