@@ -5,9 +5,28 @@ from shared.db import get_conn, init_pool
 from shared.settings import settings
 import asyncio
 
+# --- FIX: Añadir Middleware de CORS ---
+from fastapi.middleware.cors import CORSMiddleware
+
 init_pool()
 app = FastAPI(title="Vision V2 API")
 
+# --- FIX: Configurar CORS para producción y desarrollo ---
+# Lista de orígenes permitidos
+origins = [
+    "https://www.clave.restaurant",
+    "https://clave.restaurant",
+    "http://localhost:3000",  # Para desarrollo local del frontend
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Usamos la lista de orígenes permitidos
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite todos los métodos (GET, POST, etc.)
+    allow_headers=["*"],  # Permite todos los headers
+)
+# ------------------------------------
 
 @app.get("/health")
 def health():
