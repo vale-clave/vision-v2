@@ -16,3 +16,4 @@ ultralytics==8.1.35
 lapx==0.7.0
 opencv-python-headless==4.9.0.80
 shapely==2.0.3
+resend==0.7.0
