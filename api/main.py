@@ -81,8 +81,9 @@ def _snapshot():
                 zone_id, avg_dwell = row
                 if zone_id not in metrics:
                     metrics[zone_id] = {}
-                # Redondeamos a 2 decimales para que sea más legible
-                metrics[zone_id]['avg_dwell_seconds_5m'] = round(avg_dwell, 2)
+                # FIX: Cast avg_dwell (que puede ser un Decimal) a float antes de redondear.
+                if avg_dwell is not None:
+                    metrics[zone_id]['avg_dwell_seconds_5m'] = round(float(avg_dwell), 2)
 
     # Formatear el resultado final
     data = {"timestamp": now.isoformat() + "Z", "zones": metrics}
