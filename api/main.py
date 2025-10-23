@@ -62,13 +62,16 @@ def _snapshot():
                 WITH last_events AS (
                     SELECT DISTINCT ON (zone_id, track_id)
                            zone_id,
-                           event
+                           event,
+                           ts -- Necesitamos el timestamp del último evento
                     FROM zone_events
                     ORDER BY zone_id, track_id, ts DESC
                 )
                 SELECT zone_id, COUNT(*) AS occupancy
                 FROM last_events
-                WHERE event = 'enter'
+                WHERE 
+                    event = 'enter' AND
+                    ts > NOW() - INTERVAL '20 minutes' -- FIX: Solo contar si entraron en las últimas 20 mins
                 GROUP BY zone_id;
                 """
             )
