@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from shared.db import get_conn, init_pool
 from shared.settings import settings
 import asyncio
+import json
+from decimal import Decimal
 
 # --- FIX: Añadir Middleware de CORS ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,27 +13,32 @@ from fastapi.middleware.cors import CORSMiddleware
 init_pool()
 app = FastAPI(title="Vision V2 API")
 
-# --- FIX: Configurar CORS para producción y desarrollo ---
-# Lista de orígenes permitidos
+# --- Configurar CORS para producción y desarrollo ---
 origins = [
     "https://www.clave.restaurant",
     "https://clave.restaurant",
-    "http://localhost:3000",  # Para desarrollo local del frontend
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Usamos la lista de orígenes permitidos
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],  # Permite todos los métodos (GET, POST, etc.)
-    allow_headers=["*"],  # Permite todos los headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 # ------------------------------------
+
+# --- FIX: Codificador JSON robusto para manejar tipos de la BD como Decimal ---
+def robust_json_encoder(obj):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+# --------------------------------------------------------------------------
 
 @app.get("/health")
 def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
-
 
 def _snapshot():
     """
@@ -44,7 +51,6 @@ def _snapshot():
     with get_conn() as conn:
         with conn.cursor() as cur:
             # 1. Obtener la ocupación actual por zona
-            # Para cada zona, contamos cuántos tracks tienen 'enter' como su último evento.
             cur.execute(
                 """
                 WITH last_events AS (
@@ -81,19 +87,21 @@ def _snapshot():
                 zone_id, avg_dwell = row
                 if zone_id not in metrics:
                     metrics[zone_id] = {}
-                # FIX: Cast avg_dwell (que puede ser un Decimal) a float antes de redondear.
                 if avg_dwell is not None:
-                    metrics[zone_id]['avg_dwell_seconds_5m'] = round(float(avg_dwell), 2)
+                    # El tipo devuelto por AVG es Decimal, el encoder se encargará
+                    metrics[zone_id]['avg_dwell_seconds_5m'] = avg_dwell
 
     # Formatear el resultado final
     data = {"timestamp": now.isoformat() + "Z", "zones": metrics}
     return data
 
-
 @app.get("/realtime/stream")
 async def stream():
     async def gen():
         while True:
-            yield {"event": "metrics", "data": _snapshot()}
+            snapshot_data = _snapshot()
+            # Convertimos manualmente el diccionario a un string JSON usando nuestro encoder robusto
+            json_payload = json.dumps(snapshot_data, default=robust_json_encoder)
+            yield {"event": "metrics", "data": json_payload}
             await asyncio.sleep(2)
     return EventSourceResponse(gen())
