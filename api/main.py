@@ -10,11 +10,14 @@ from decimal import Decimal
 # --- FIX: Añadir Middleware de CORS ---
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-import redis
+import redis.asyncio as redis # <- CAMBIO 1: Usamos la versión asíncrona
 
 
 init_pool()
 app = FastAPI(title="Vision V2 API")
+
+# CAMBIO 2: Se define el cliente de Redis aquí, en el scope global y de forma asíncrona
+redis_client = redis.from_url(settings.redis_url.unicode_string())
 
 # --- Configurar CORS para producción y desarrollo ---
 origins = [
@@ -113,8 +116,8 @@ async def stream():
 async def video_stream(camera_id: int):
     async def frame_generator():
         while True:
-            # Obtener el último frame anotado desde Redis
-            frame_bytes = redis_client.get(f"annotated_frame_cam_{camera_id}")
+            # CAMBIO 3: Usamos 'await' para la llamada asíncrona a Redis
+            frame_bytes = await redis_client.get(f"annotated_frame_cam_{camera_id}")
             
             if frame_bytes:
                 # El formato MJPEG requiere estos encabezados especiales entre cada frame
