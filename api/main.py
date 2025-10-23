@@ -9,6 +9,9 @@ from decimal import Decimal
 
 # --- FIX: Añadir Middleware de CORS ---
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+import redis
+
 
 init_pool()
 app = FastAPI(title="Vision V2 API")
@@ -105,3 +108,21 @@ async def stream():
             yield {"event": "metrics", "data": json_payload}
             await asyncio.sleep(2)
     return EventSourceResponse(gen())
+
+@app.get("/video/stream/{camera_id}")
+async def video_stream(camera_id: int):
+    async def frame_generator():
+        while True:
+            # Obtener el último frame anotado desde Redis
+            frame_bytes = redis_client.get(f"annotated_frame_cam_{camera_id}")
+            
+            if frame_bytes:
+                # El formato MJPEG requiere estos encabezados especiales entre cada frame
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # Controla la fluidez del stream. Un valor más bajo = más FPS (pero más carga en la red).
+            # 0.05 equivale a ~20 FPS.
+            await asyncio.sleep(0.05) 
+
+    return StreamingResponse(frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame")

@@ -7,6 +7,7 @@ from shared.settings import settings
 from PIL import Image
 import io
 import torch
+import cv2 # <- NUEVA IMPORTACIÓN
 
 # FIX: PyTorch >= 2.6 rompe la carga de modelos de ultralytics.
 # "Parcheamos" torch.load para forzar weights_only=False, ya que confiamos
@@ -82,6 +83,20 @@ while True:
     # 3. Inferencia y Tracking (lógica original)
     results = model.track(frame, classes=[0], verbose=False, persist=True, tracker="bytetrack.yaml")[0]
 
+    # 4. DIBUJAR ANOTACIONES Y ENVIAR A REDIS PARA EL STREAM DE VIDEO
+    # El método plot() de ultralytics convenientemente devuelve el frame con las cajas dibujadas.
+    annotated_frame = results.plot()
+
+    # Codificar el frame dibujado a JPEG para la transmisión
+    ok, buffer = cv2.imencode('.jpg', annotated_frame)
+    if ok:
+        frame_bytes = buffer.tobytes()
+        # Guardamos el frame en una clave simple, sobrescribiendo la anterior.
+        # Es más eficiente para un stream de video que una lista.
+        redis_client.set(f"annotated_frame_cam_{CAMERA_ID}", frame_bytes)
+
+
+    # 5. Lógica de Eventos de Entrada/Salida de Zona (sin cambios)
     current_tracks = {}
     if results.boxes.id is not None:
         for box in results.boxes:

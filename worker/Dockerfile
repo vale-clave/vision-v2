@@ -13,7 +13,7 @@ ENV PYTHONPATH "${PYTHONPATH}:/app"
 COPY requirements.txt .
 # La imagen ya viene con torch y torchvision.
 # Solo instalamos el resto de dependencias, forzando una versión de numpy compatible.
-RUN pip3 install --no-cache-dir "numpy<2" fastapi uvicorn redis psycopg2-binary python-dotenv pydantic pydantic-settings sse-starlette ultralytics shapely pyyaml
+RUN pip3 install --no-cache-dir "numpy<2" fastapi uvicorn redis psycopg2-binary python-dotenv pydantic pydantic-settings sse-starlette ultralytics shapely pyyaml opencv-python-headless
 
 COPY config.yaml .
 COPY shared/ ./shared/
