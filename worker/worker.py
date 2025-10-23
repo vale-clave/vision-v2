@@ -1,19 +1,20 @@
 import os, time, json, redis, base64, numpy as np
 from datetime import datetime
 from shapely.geometry import Point, Polygon
-from ultralytics import YOLO
 import yaml
 from pathlib import Path
 from shared.settings import settings
 from PIL import Image
 import io
 import torch
-from ultralytics.nn.tasks import WorldModel
 
-# FIX: Añadimos la clase WorldModel a la lista segura de PyTorch
-# para permitir la carga en versiones >= 2.6
-torch.serialization.add_safe_globals([WorldModel])
+# FIX: PyTorch >= 2.6 rompe la carga de modelos de ultralytics.
+# "Parcheamos" torch.load para forzar weights_only=False, ya que confiamos
+# en la fuente del modelo. Esto soluciona el problema de raíz.
+original_torch_load = torch.load
+torch.load = lambda *args, **kwargs: original_torch_load(*args, weights_only=False, **kwargs)
 
+from ultralytics import YOLO
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 FRAMES_QUEUE_KEY = os.getenv("REDIS_FRAMES_QUEUE", "frames_queue")
