@@ -104,13 +104,16 @@ def save_report_to_db(conn, start_date, end_date, summary):
 
 def main():
     # Lógica para determinar start_date y end_date para el reporte.
-    # Por defecto, será para la semana anterior (Lunes a Domingo), en horario de Ecuador.
+    # Corregido: siempre calcula la semana pasada completa (de Lunes a Domingo).
     today_ecuador = datetime.now(ECUADOR_TZ).date()
-    start_of_this_week = today_ecuador - timedelta(days=today_ecuador.weekday())
-    end_date = start_of_this_week
+    # Retrocede al domingo de la semana pasada
+    last_week_sunday = today_ecuador - timedelta(days=(today_ecuador.weekday() + 1) % 7)
+    # El final del rango del reporte es el Lunes siguiente a ese Domingo (para consultas < end_date)
+    end_date = last_week_sunday + timedelta(days=1)
+    # El inicio del rango es 7 días antes de ese Lunes
     start_date = end_date - timedelta(days=7)
 
-    print(f"Generando reporte para la semana: {start_date} a {end_date} (Zona Horaria Ecuador)")
+    print(f"Generando reporte para la semana: {start_date} a {end_date - timedelta(days=1)} (Zona Horaria Ecuador)")
 
     try:
         with get_conn() as conn:
