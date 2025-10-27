@@ -58,10 +58,10 @@ occupancy_changes AS (
 ),
 occupancy_timeline AS (
     SELECT
-        zone_id,
-        ts,
+        oc.zone_id,
+        oc.ts,
         COALESCE(so.occupancy, 0) + oc.net_change AS current_occupancy,
-        LEAD(ts, 1, (SELECT end_ts_utc FROM time_range_utc)) OVER (PARTITION BY zone_id ORDER BY ts) - ts AS duration
+        LEAD(oc.ts, 1, (SELECT end_ts_utc FROM time_range_utc)) OVER (PARTITION BY oc.zone_id ORDER BY oc.ts) - oc.ts AS duration
     FROM occupancy_changes oc
     LEFT JOIN starting_occupancy so ON oc.zone_id = so.zone_id
 ),
