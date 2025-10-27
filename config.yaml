@@ -60,10 +60,30 @@ tenants:
       - id: 6
         name: "Inside Dining Area"
         location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1202"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1402"
         fps: 30
         zones:
           - id: 6
             name: "Inside Dining Area"
             metrics: ["people_inside"]
+            polygon: [[55, 184], [310, 60], [355, 38], [507, 62], [450, 355], [140, 353], [55, 185]]
+      - id: 7
+        name: "Kitchen Area 1"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1302"
+        fps: 30
+        zones:
+          - id: 7
+            name: "Kitchen Area 1"
+            metrics: ["people_inside"]
             polygon: [[153, 146], [277, 355], [522, 354], [550, 238], [295, 100], [154, 145]]
+      - id: 8
+        name: "Kitchen Area 2"
+        location: "Buijo City Center"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1602"
+        fps: 30
+        zones:
+          - id: 8
+            name: "Kitchen Area 2"
+            metrics: ["people_inside"]
+            polygon: [[181, 3], [48, 355], [515, 354], [547, 303], [379, 2], [180, 2]]
