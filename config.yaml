@@ -36,13 +36,13 @@ tenants:
       - id: 4
         name: "Outside Dining Area"
         location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/402"
+        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/702"
         fps: 30
         zones:
           - id: 4
             name: "Dining Area"
             metrics: ["people_inside"]
-            polygon: [[134, 92], [150, 67], [202, 71], [257, 114], [340, 128], [517, 355], [137, 355], [133, 94]]
+            polygon: [[93, 226], [404, 44], [563, 60], [493, 352], [130, 349], [92, 229]]
     
       - id: 5
         name: "Break Area"

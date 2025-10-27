@@ -71,7 +71,7 @@ def _snapshot():
                 FROM last_events
                 WHERE 
                     event = 'enter' AND
-                    ts > NOW() - INTERVAL '20 minutes' -- FIX: Solo contar si entraron en las últimas 20 mins
+                    ts > NOW() - INTERVAL '60 minutes' -- FIX: Solo contar si entraron en las últimas 20 mins
                 GROUP BY zone_id;
                 """
             )
