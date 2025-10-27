@@ -19,7 +19,7 @@ from shared.db import get_conn
 #    - Esto captura correctamente los tiempos de permanencia que cruzan los límites de la hora.
 #    - Limita el tiempo de permanencia contado a la hora actual para no contaminar las métricas de otras horas.
 # 3. CONTEO DE ENTRADAS:
-#    - Sigue siendo un simple recuento de eventos 'enter' dentro de la hora.
+#    - Sigue siendo un simple recuento de eventos 'enter' dentro de la hora, ahora útil para medir "movimiento".
 AGGREGATION_QUERY = """
 WITH time_range AS (
     SELECT
@@ -76,7 +76,8 @@ occupancy_metrics AS (
 entries_in_hour AS (
     SELECT
         zone_id,
-        count(*) as total_entries
+        count(*) as total_entries,
+        count(DISTINCT track_id) as unique_visitors
     FROM events_in_hour
     WHERE event = 'enter'
     GROUP BY zone_id
@@ -101,29 +102,32 @@ final_metrics AS (
         COALESCE(om.avg_occupancy, so.occupancy, 0) as avg_occupancy,
         COALESCE(om.max_occupancy, so.occupancy, 0) as max_occupancy,
         COALESCE(AVG(dt.dwell_seconds), 0) as avg_dwell_seconds,
-        COALESCE(e.total_entries, 0) as total_entries
+        COALESCE(e.total_entries, 0) as total_entries,
+        COALESCE(e.unique_visitors, 0) as unique_visitors
     FROM zones z
     LEFT JOIN starting_occupancy so ON z.id = so.zone_id
     LEFT JOIN occupancy_metrics om ON z.id = om.zone_id
     LEFT JOIN dwell_times dt ON z.id = dt.zone_id
     LEFT JOIN entries_in_hour e ON z.id = e.zone_id
-    GROUP BY z.id, so.occupancy, om.avg_occupancy, om.max_occupancy, e.total_entries
+    GROUP BY z.id, so.occupancy, om.avg_occupancy, om.max_occupancy, e.total_entries, e.unique_visitors
 )
-INSERT INTO hourly_metrics (ts, zone_id, avg_occupancy, max_occupancy, avg_dwell_seconds, total_entries)
+INSERT INTO hourly_metrics (ts, zone_id, avg_occupancy, max_occupancy, avg_dwell_seconds, total_entries, unique_visitors)
 SELECT
     (SELECT start_ts_local FROM time_range),
     fm.zone_id,
     fm.avg_occupancy,
     fm.max_occupancy,
     fm.avg_dwell_seconds,
-    fm.total_entries
+    fm.total_entries,
+    fm.unique_visitors
 FROM final_metrics fm
 WHERE fm.zone_id IS NOT NULL
 ON CONFLICT (ts, zone_id) DO UPDATE SET
     avg_occupancy = EXCLUDED.avg_occupancy,
     max_occupancy = EXCLUDED.max_occupancy,
     avg_dwell_seconds = EXCLUDED.avg_dwell_seconds,
-    total_entries = EXCLUDED.total_entries;
+    total_entries = EXCLUDED.total_entries,
+    unique_visitors = EXCLUDED.unique_visitors;
 """
 
 

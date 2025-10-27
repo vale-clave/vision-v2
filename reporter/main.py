@@ -24,7 +24,8 @@ def fetch_weekly_data(conn, start_date, end_date):
             hm.avg_occupancy,
             hm.max_occupancy,
             hm.avg_dwell_seconds,
-            hm.total_entries
+            hm.total_entries,
+            hm.unique_visitors
         FROM hourly_metrics hm
         JOIN zones z ON hm.zone_id = z.id
         JOIN cameras c ON z.camera_id = c.id
@@ -54,12 +55,14 @@ def format_data_for_llm(data):
         # Convertir a minutos para que sea más legible para el LLM
         avg_dwell_min = round(row['avg_dwell_seconds'] / 60, 1)
         entries = row['total_entries']
+        visitors = row['unique_visitors']
 
         # Solo informar sobre horas con actividad para mantener el prompt conciso
-        if entries > 0 or avg_occ > 0:
+        if visitors > 0 or avg_occ > 0:
              report_lines.append(
-                f"- {ts_str}: Ocupación Promedio: {avg_occ}, Ocupación Máxima: {max_occ}, "
-                f"Estancia Promedio: {avg_dwell_min} min, Entradas: {entries}"
+                f"- {ts_str}: Visitantes Únicos: {visitors}, Ocupación Promedio: {avg_occ}, "
+                f"Ocupación Máxima: {max_occ}, Estancia Promedio: {avg_dwell_min} min, "
+                f"Total Entradas: {entries}"
             )
     return "\n".join(report_lines)
 
@@ -70,17 +73,24 @@ def generate_insights_with_gemini(data_string):
         raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-pro')
 
     prompt = f"""
         Eres un analista de operaciones para un restaurante llamado "Clave". Tu tarea es analizar los datos de afluencia de la última semana y generar un resumen ejecutivo con insights accionables para el gerente. Eres conciso, profesional y te enfocas en lo que es más importante.
+
+        **Contexto Importante Sobre las Métricas:**
+        - **Visitantes Únicos:** Representa el número de personas distintas que entraron a una zona. Esta es la métrica principal para medir la afluencia de clientes.
+        - **Total Entradas:** Es el número total de veces que se cruzó la entrada de una zona. Siempre será igual o mayor que los visitantes únicos. Es útil para medir el nivel de "movimiento" o "tráfico" general, incluyendo el del personal.
+        - **Estancia Promedio:** Mide el tiempo promedio que un visitante único permanece en la zona.
+
+        Al analizar, por favor, enfócate en los **Visitantes Únicos** para tus conclusiones sobre la afluencia de clientes, y usa el **Total Entradas** para inferir niveles de actividad operativa o congestión. No confundas ambas métricas.
 
         Aquí están los datos de métricas por hora de la última semana, separados por zona:
         {data_string}
 
         Por favor, genera un reporte en formato Markdown con la siguiente estructura:
-        1.  **Resumen General:** Un párrafo que describa la tendencia general de la semana. ¿Fue una semana ocupada? ¿Hubo algún día que destacara?
-        2.  **Puntos Críticos y Horas Pico:** Identifica los 3-5 momentos o patrones más importantes de la semana (ej. "El Martes al mediodía hubo una congestión significativa en la zona de caja que duró 2 horas"). Sé específico.
+        1.  **Resumen General:** Un párrafo que describa la tendencia general de la semana. ¿Fue una semana ocupada? ¿Hubo algún día que destacara en términos de **visitantes únicos**?
+        2.  **Puntos Críticos y Horas Pico:** Identifica los 3-5 momentos o patrones más importantes de la semana (ej. "El Martes al mediodía hubo una congestión significativa en la zona de caja, con un alto número de **Total de Entradas** en comparación con los **Visitantes Únicos**"). Sé específico.
         3.  **Observaciones Clave:** Menciona cualquier patrón interesante o inesperado (ej. "Los Miércoles por la noche el tiempo de estancia en el área principal es inusualmente alto, sugiriendo grupos grandes que se quedan más tiempo").
         4.  **Recomendaciones:** Ofrece 1 o 2 sugerencias concretas y accionables basadas en los datos (ej. "Considerar asignar un empleado adicional a la caja los Martes entre las 12 PM y 2 PM para reducir la espera").
     """
