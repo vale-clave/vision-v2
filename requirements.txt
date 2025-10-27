@@ -17,3 +17,7 @@ lapx==0.7.0
 opencv-python-headless==4.9.0.80
 shapely==2.0.3
 resend==0.7.0
+
+# Dependencias para el servicio de reportería
+google-generativeai
+python-dotenv
