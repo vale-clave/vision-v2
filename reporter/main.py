@@ -11,6 +11,9 @@ from shared.db import get_conn
 # Cargar variables de entorno desde el archivo .env
 load_dotenv()
 
+# Definir la zona horaria de Ecuador
+ECUADOR_TZ = timezone(timedelta(hours=-5))
+
 def fetch_weekly_data(conn, start_date, end_date):
     """Obtiene los datos horarios agregados de la última semana."""
     query = """
@@ -43,7 +46,9 @@ def format_data_for_llm(data):
             current_zone = zone_name
             report_lines.append(f"\n**Zona: {current_zone}**")
 
-        ts = row['ts'].strftime('%A, %H:%M')
+        # Convertir timestamp a la zona horaria de Ecuador para mostrarlo
+        ts_ecuador = row['ts'].astimezone(ECUADOR_TZ)
+        ts_str = ts_ecuador.strftime('%A, %H:%M')
         avg_occ = round(row['avg_occupancy'], 1)
         max_occ = row['max_occupancy']
         # Convertir a minutos para que sea más legible para el LLM
@@ -51,9 +56,9 @@ def format_data_for_llm(data):
         entries = row['total_entries']
 
         # Solo informar sobre horas con actividad para mantener el prompt conciso
-        if entries > 0:
+        if entries > 0 or avg_occ > 0:
              report_lines.append(
-                f"- {ts}: Ocupación Promedio: {avg_occ}, Ocupación Máxima: {max_occ}, "
+                f"- {ts_str}: Ocupación Promedio: {avg_occ}, Ocupación Máxima: {max_occ}, "
                 f"Estancia Promedio: {avg_dwell_min} min, Entradas: {entries}"
             )
     return "\n".join(report_lines)
@@ -99,13 +104,13 @@ def save_report_to_db(conn, start_date, end_date, summary):
 
 def main():
     # Lógica para determinar start_date y end_date para el reporte.
-    # Por defecto, será para la semana anterior (Lunes a Domingo).
-    today = datetime.now(timezone.utc).date()
-    start_of_this_week = today - timedelta(days=today.weekday())
+    # Por defecto, será para la semana anterior (Lunes a Domingo), en horario de Ecuador.
+    today_ecuador = datetime.now(ECUADOR_TZ).date()
+    start_of_this_week = today_ecuador - timedelta(days=today_ecuador.weekday())
     end_date = start_of_this_week
     start_date = end_date - timedelta(days=7)
 
-    print(f"Generando reporte para la semana: {start_date} a {end_date}")
+    print(f"Generando reporte para la semana: {start_date} a {end_date} (Zona Horaria Ecuador)")
 
     try:
         with get_conn() as conn:
