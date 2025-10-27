@@ -25,7 +25,7 @@ enter_exit_events AS (
         zone_id,
         track_id,
         event_type
-    FROM events, time_range
+    FROM zone_events, time_range
     WHERE ts >= time_range.start_ts AND ts < time_range.end_ts
 ),
 dwell_times AS (
