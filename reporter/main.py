@@ -70,7 +70,7 @@ def generate_insights_with_gemini(data_string):
         raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     prompt = f"""
         Eres un analista de operaciones para un restaurante llamado "Clave". Tu tarea es analizar los datos de afluencia de la última semana y generar un resumen ejecutivo con insights accionables para el gerente. Eres conciso, profesional y te enfocas en lo que es más importante.
