@@ -1,7 +1,7 @@
-import asyncio
 import argparse
 from datetime import datetime, timedelta, timezone
 
+import psycopg2
 from shared.db import get_conn
 
 
@@ -16,8 +16,8 @@ from shared.db import get_conn
 AGGREGATION_QUERY = """
 WITH time_range AS (
     SELECT
-        date_trunc('hour', $1::timestamptz) AS start_ts,
-        date_trunc('hour', $1::timestamptz) + interval '1 hour' AS end_ts
+        date_trunc('hour', %s::timestamptz) AS start_ts,
+        date_trunc('hour', %s::timestamptz) + interval '1 hour' AS end_ts
 ),
 enter_exit_events AS (
     SELECT
@@ -91,15 +91,21 @@ ON CONFLICT (ts, zone_id) DO UPDATE SET
 """
 
 
-async def run_aggregation(target_hour: datetime):
+def run_aggregation(target_hour: datetime):
     """
     Ejecuta la agregación por hora para la hora especificada.
     """
     target_hour_str = target_hour.isoformat()
     print(f"Ejecutando agregación para la hora que comienza en: {target_hour_str}")
-    async with get_conn() as conn:
-        await conn.execute(AGGREGATION_QUERY, target_hour_str)
-    print("Agregación completada.")
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(AGGREGATION_QUERY, (target_hour_str, target_hour_str))
+                conn.commit()
+        print("Agregación completada.")
+    except psycopg2.Error as e:
+        print(f"Error de base de datos: {e}")
+        # En una aplicación real, aquí se podría hacer conn.rollback()
 
 
 def main():
@@ -120,7 +126,7 @@ def main():
         now = datetime.now(timezone.utc)
         target_hour = (now - timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
 
-    asyncio.run(run_aggregation(target_hour))
+    run_aggregation(target_hour)
 
 
 if __name__ == "__main__":
