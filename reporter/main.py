@@ -24,8 +24,7 @@ def fetch_weekly_data(conn, start_date, end_date):
             hm.avg_occupancy,
             hm.max_occupancy,
             hm.avg_dwell_seconds,
-            hm.total_entries,
-            hm.unique_visitors
+            hm.total_entries
         FROM hourly_metrics hm
         JOIN zones z ON hm.zone_id = z.id
         JOIN cameras c ON z.camera_id = c.id
@@ -55,14 +54,12 @@ def format_data_for_llm(data):
         # Convertir a minutos para que sea más legible para el LLM
         avg_dwell_min = round(row['avg_dwell_seconds'] / 60, 1)
         entries = row['total_entries']
-        visitors = row['unique_visitors']
 
         # Solo informar sobre horas con actividad para mantener el prompt conciso
-        if visitors > 0 or avg_occ > 0:
+        if entries > 0 or avg_occ > 0:
              report_lines.append(
-                f"- {ts_str}: Visitantes Únicos: {visitors}, Ocupación Promedio: {avg_occ}, "
-                f"Ocupación Máxima: {max_occ}, Estancia Promedio: {avg_dwell_min} min, "
-                f"Total Entradas: {entries}"
+                f"- {ts_str}: Ocupación Promedio: {avg_occ}, Ocupación Máxima: {max_occ}, "
+                f"Estancia Promedio: {avg_dwell_min} min, Total Entradas: {entries}"
             )
     return "\n".join(report_lines)
 
@@ -73,26 +70,27 @@ def generate_insights_with_gemini(data_string):
         raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-pro')
 
     prompt = f"""
         Eres un analista de operaciones para un restaurante llamado "Clave". Tu tarea es analizar los datos de afluencia de la última semana y generar un resumen ejecutivo con insights accionables para el gerente. Eres conciso, profesional y te enfocas en lo que es más importante.
 
         **Contexto Importante Sobre las Métricas:**
-        - **Visitantes Únicos:** Representa el número de personas distintas que entraron a una zona. Esta es la métrica principal para medir la afluencia de clientes.
-        - **Total Entradas:** Es el número total de veces que se cruzó la entrada de una zona. Siempre será igual o mayor que los visitantes únicos. Es útil para medir el nivel de "movimiento" o "tráfico" general, incluyendo el del personal.
-        - **Estancia Promedio:** Mide el tiempo promedio que un visitante único permanece en la zona.
+        - **Ocupación Promedio:** El número promedio de personas que se encontraban en una zona durante una hora. Esta es la métrica principal para entender qué tan concurrida estuvo un área.
+        - **Ocupación Máxima:** El número máximo de personas que estuvieron en una zona al mismo tiempo. Es clave para identificar picos de congestión.
+        - **Estancia Promedio:** Mide el tiempo promedio que una persona permanece en la zona.
+        - **Total Entradas:** Mide el nivel de "movimiento" o "tráfico" general, incluyendo el del personal. Un valor alto comparado con la ocupación sugiere mucho movimiento.
 
-        Al analizar, por favor, enfócate en los **Visitantes Únicos** para tus conclusiones sobre la afluencia de clientes, y usa el **Total Entradas** para inferir niveles de actividad operativa o congestión. No confundas ambas métricas.
+        Al analizar, por favor, basa tus conclusiones principalmente en los patrones de **Ocupación Promedio y Máxima** para identificar los momentos de mayor demanda. Usa la **Estancia Promedio** para entender el comportamiento de los clientes en cada zona.
 
         Aquí están los datos de métricas por hora de la última semana, separados por zona:
         {data_string}
 
         Por favor, genera un reporte en formato Markdown con la siguiente estructura:
-        1.  **Resumen General:** Un párrafo que describa la tendencia general de la semana. ¿Fue una semana ocupada? ¿Hubo algún día que destacara en términos de **visitantes únicos**?
-        2.  **Puntos Críticos y Horas Pico:** Identifica los 3-5 momentos o patrones más importantes de la semana (ej. "El Martes al mediodía hubo una congestión significativa en la zona de caja, con un alto número de **Total de Entradas** en comparación con los **Visitantes Únicos**"). Sé específico.
-        3.  **Observaciones Clave:** Menciona cualquier patrón interesante o inesperado (ej. "Los Miércoles por la noche el tiempo de estancia en el área principal es inusualmente alto, sugiriendo grupos grandes que se quedan más tiempo").
-        4.  **Recomendaciones:** Ofrece 1 o 2 sugerencias concretas y accionables basadas en los datos (ej. "Considerar asignar un empleado adicional a la caja los Martes entre las 12 PM y 2 PM para reducir la espera").
+        1.  **Resumen General:** Un párrafo que describa la tendencia general de la semana. ¿Qué días y horas tuvieron la mayor **ocupación promedio**?
+        2.  **Puntos Críticos y Picos de Congestión:** Identifica los 3-5 momentos donde la **Ocupación Máxima** fue más alta. ¿Hubo momentos en que el local estuvo cerca de su capacidad?
+        3.  **Observaciones de Comportamiento:** Usando la **Estancia Promedio**, menciona cualquier patrón interesante (ej. "En la zona de comedor, el tiempo de estancia es mayor durante la noche, sugiriendo cenas más largas").
+        4.  **Recomendaciones:** Ofrece 1 o 2 sugerencias concretas basadas en los patrones de **ocupación** (ej. "Considerar reforzar el personal los Sábados de 1 PM a 3 PM, ya que la **ocupación promedio** es un 50% más alta que en otros días").
     """
     
     response = model.generate_content(prompt)
