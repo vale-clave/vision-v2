@@ -73,24 +73,24 @@ def generate_insights_with_gemini(data_string):
     model = genai.GenerativeModel('gemini-2.5-flash')
 
     prompt = f"""
-        Eres un analista de operaciones para un restaurante llamado "Clave". Tu tarea es analizar los datos de afluencia de la última semana y generar un resumen ejecutivo con insights accionables para el gerente. Eres conciso, profesional y te enfocas en lo que es más importante.
+        Eres un analista de operaciones para "Rogers", un restaurante de servicio rápido (QSR) especializado en hamburguesas. Tu tarea es analizar los datos de afluencia de la última semana y generar un resumen ejecutivo con insights accionables para el gerente. Eres conciso, profesional y usas un tono apropiado para un negocio de comida rápida.
 
         **Contexto Importante Sobre las Métricas:**
         - **Ocupación Promedio:** El número promedio de personas que se encontraban en una zona durante una hora. Esta es la métrica principal para entender qué tan concurrida estuvo un área.
         - **Ocupación Máxima:** El número máximo de personas que estuvieron en una zona al mismo tiempo. Es clave para identificar picos de congestión.
-        - **Estancia Promedio:** Mide el tiempo promedio que una persona permanece en la zona.
+        - **Estancia Promedio:** Mide el tiempo promedio que una persona permanece en la zona. En un QSR, tiempos cortos en la zona de caja son buenos, pero tiempos muy cortos en el comedor podrían ser una señal a investigar.
         - **Total Entradas:** Mide el nivel de "movimiento" o "tráfico" general, incluyendo el del personal. Un valor alto comparado con la ocupación sugiere mucho movimiento.
 
-        Al analizar, por favor, basa tus conclusiones principalmente en los patrones de **Ocupación Promedio y Máxima** para identificar los momentos de mayor demanda. Usa la **Estancia Promedio** para entender el comportamiento de los clientes en cada zona.
+        Al analizar, por favor, basa tus conclusiones principalmente en los patrones de **Ocupación Promedio y Máxima** para identificar los momentos de mayor demanda. Usa la **Estancia Promedio** para entender el comportamiento de los clientes en cada zona, considerando el contexto de un QSR.
 
         Aquí están los datos de métricas por hora de la última semana, separados por zona:
         {data_string}
 
         Por favor, genera un reporte en formato Markdown con la siguiente estructura:
-        1.  **Resumen General:** Un párrafo que describa la tendencia general de la semana. ¿Qué días y horas tuvieron la mayor **ocupación promedio**?
-        2.  **Puntos Críticos y Picos de Congestión:** Identifica los 3-5 momentos donde la **Ocupación Máxima** fue más alta. ¿Hubo momentos en que el local estuvo cerca de su capacidad?
-        3.  **Observaciones de Comportamiento:** Usando la **Estancia Promedio**, menciona cualquier patrón interesante (ej. "En la zona de comedor, el tiempo de estancia es mayor durante la noche, sugiriendo cenas más largas").
-        4.  **Recomendaciones:** Ofrece 1 o 2 sugerencias concretas basadas en los patrones de **ocupación** (ej. "Considerar reforzar el personal los Sábados de 1 PM a 3 PM, ya que la **ocupación promedio** es un 50% más alta que en otros días").
+        1.  **Resumen General:** Un párrafo que describa la tendencia general de la semana en "Rogers". ¿Qué días y horas tuvieron la mayor **ocupación promedio**?
+        2.  **Puntos Críticos y Picos de Congestión:** Identifica los 3-5 momentos donde la **Ocupación Máxima** fue más alta. ¿Hubo momentos en que el local estuvo cerca de su capacidad? ¿Cómo impacta esto en un modelo QSR?
+        3.  **Observaciones de Comportamiento:** Usando la **Estancia Promedio**, menciona cualquier patrón interesante (ej. "El tiempo de estancia en la cola de 'Drivers' es consistentemente bajo, indicando un servicio de delivery eficiente").
+        4.  **Recomendaciones:** Ofrece 1 o 2 sugerencias concretas y accionables basadas en los patrones de **ocupación** y orientadas a un QSR (ej. "Considerar una promoción de almuerzo entre semana para aumentar la ocupación en las horas valle").
     """
     
     response = model.generate_content(prompt)
