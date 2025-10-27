@@ -23,8 +23,8 @@ from shared.db import get_conn
 AGGREGATION_QUERY = """
 WITH time_range AS (
     SELECT
-        date_trunc('hour', %s::timestptz at time zone 'America/Guayaquil') AS start_ts_local,
-        date_trunc('hour', %s::timestptz at time zone 'America/Guayaquil') + interval '1 hour' AS end_ts_local
+        date_trunc('hour', %s::TIMESTAMPTZ at time zone 'America/Guayaquil') AS start_ts_local,
+        date_trunc('hour', %s::TIMESTAMPTZ at time zone 'America/Guayaquil') + interval '1 hour' AS end_ts_local
 ),
 time_range_utc AS (
     SELECT
