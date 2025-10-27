@@ -2,6 +2,7 @@ import os
 import argparse
 from datetime import datetime, timedelta, timezone
 import psycopg2
+from psycopg2.extras import DictCursor
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ def fetch_weekly_data(conn, start_date, end_date):
         ORDER BY z.name, hm.ts;
     """
     # Usamos un cursor con nombre para obtener los nombres de las columnas
-    with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+    with conn.cursor(cursor_factory=DictCursor) as cur:
         cur.execute(query, (start_date, end_date))
         return [dict(row) for row in cur.fetchall()]
 
