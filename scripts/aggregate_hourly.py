@@ -24,7 +24,7 @@ enter_exit_events AS (
         ts,
         zone_id,
         track_id,
-        event_type
+        event
     FROM zone_events, time_range
     WHERE ts >= time_range.start_ts AND ts < time_range.end_ts
 ),
@@ -37,7 +37,7 @@ dwell_times AS (
     JOIN
         enter_exit_events x ON e.track_id = x.track_id AND e.zone_id = x.zone_id
     WHERE
-        e.event_type = 'enter' AND x.event_type = 'exit' AND x.ts > e.ts
+        e.event = 'enter' AND x.event = 'exit' AND x.ts > e.ts
     GROUP BY
         e.zone_id, e.track_id, e.ts
 ),
@@ -46,11 +46,11 @@ entries AS (
         zone_id,
         COUNT(*) AS total_entries
     FROM enter_exit_events
-    WHERE event_type = 'enter'
+    WHERE event = 'enter'
     GROUP BY zone_id
 ),
 occupancy_changes AS (
-    SELECT ts, zone_id, CASE WHEN event_type = 'enter' THEN 1 ELSE -1 END AS change
+    SELECT ts, zone_id, CASE WHEN event = 'enter' THEN 1 ELSE -1 END AS change
     FROM enter_exit_events
 ),
 occupancy_at_time AS (
