@@ -2,7 +2,7 @@ import asyncio
 import argparse
 from datetime import datetime, timedelta, timezone
 
-from shared.db import get_pool
+from shared.db import get_conn
 
 
 # Esta consulta calcula las métricas clave para una hora determinada a partir de los eventos sin procesar.
@@ -95,12 +95,16 @@ async def run_aggregation(target_hour: datetime):
     """
     Ejecuta la agregación por hora para la hora especificada.
     """
-    pool = await get_pool()
-    target_hour_str = target_hour.isoformat()
-    print(f"Ejecutando agregación para la hora que comienza en: {target_hour_str}")
-    async with pool.acquire() as conn:
+    conn = None
+    try:
+        conn = await get_conn()
+        target_hour_str = target_hour.isoformat()
+        print(f"Ejecutando agregación para la hora que comienza en: {target_hour_str}")
         await conn.execute(AGGREGATION_QUERY, target_hour_str)
-    print("Agregación completada.")
+        print("Agregación completada.")
+    finally:
+        if conn:
+            await conn.close()
 
 
 def main():
