@@ -95,16 +95,11 @@ async def run_aggregation(target_hour: datetime):
     """
     Ejecuta la agregación por hora para la hora especificada.
     """
-    conn = None
-    try:
-        conn = await get_conn()
-        target_hour_str = target_hour.isoformat()
-        print(f"Ejecutando agregación para la hora que comienza en: {target_hour_str}")
+    target_hour_str = target_hour.isoformat()
+    print(f"Ejecutando agregación para la hora que comienza en: {target_hour_str}")
+    async with get_conn() as conn:
         await conn.execute(AGGREGATION_QUERY, target_hour_str)
-        print("Agregación completada.")
-    finally:
-        if conn:
-            await conn.close()
+    print("Agregación completada.")
 
 
 def main():
