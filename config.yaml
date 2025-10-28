@@ -13,14 +13,14 @@ tenants:
             metrics: ["people_inside"]
             polygon: [[84, 163], [307, 96], [286, 77], [348, 68], [341, 27], [418, 14], [560, 109], [577, 226], [498, 353], [148, 355], [83, 165]]
             thresholds:
-              occupancy: 12
+              - { metric: "occupancy", level: "critical", threshold: 12 }
           - id: 2
             name: "Register"
             metrics: ["dwell", "people_inside"]
             polygon: [[107, 156], [144, 249], [230, 215], [215, 121], [107, 151]]
             thresholds:
-              dwell: 60  # seconds
-              occupancy: 5 # threshold for people inside
+              - { metric: "dwell", level: "critical", threshold: 60 }
+              - { metric: "occupancy", level: "critical", threshold: 5 }
       - id: 2
         name: "Drivers Area"
         location: "Buijo City Center"
@@ -32,7 +32,7 @@ tenants:
             metrics: ["people_inside"]
             polygon: [[127, 328], [262, 152], [394, 95], [474, 194], [526, 229], [529, 354], [150, 355], [128, 331]]
             thresholds:
-              occupancy: 3
+              - { metric: "occupancy", level: "critical", threshold: 3 }
       - id: 4
         name: "Outside Dining Area"
         location: "Buijo City Center"
@@ -55,7 +55,7 @@ tenants:
             metrics: ["dwell", "people_inside"]
             polygon: [[216, 74], [348, 47], [383, 101], [486, 86], [592, 278], [481, 354], [237, 352], [220, 273], [215, 74]]
             thresholds:
-              occupancy: 5
+              - { metric: "occupancy", level: "critical", threshold: 5 }
 
       - id: 6
         name: "Inside Dining Area"

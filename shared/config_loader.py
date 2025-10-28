@@ -1,48 +1,106 @@
 import yaml
-from pathlib import Path
-from shared.db import get_conn, init_pool
+import psycopg2
 import json
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
+from shared.db import get_conn
 
+CONFIG_PATH = "config.yaml"
 
-def ensure_schema():
-    with open(CONFIG_PATH, "r") as f:
-        cfg = yaml.safe_load(f)
-    init_pool()
-    with get_conn() as conn:
-        cur = conn.cursor()
-        for tenant in cfg.get("tenants", []):
-            tenant_id = tenant["id"]
-            for cam in tenant.get("cameras", []):
-                cur.execute(
-                    """
-                    INSERT INTO cameras (id, tenant_id, name, location, rtsp_url, fps)
-                    VALUES (%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
-                    """,
-                    (cam["id"], tenant_id, cam.get("name"), cam.get("location"), cam.get("rtsp_url"), cam.get("fps", 30))
-                )
-                for zone in cam.get("zones", []):
+def sync_config_to_db():
+    """
+    Lee el config.yaml (con la estructura anidada correcta) y sincroniza los tenants,
+    cámaras, zonas y umbrales con la base de datos.
+    """
+    print("Iniciando la sincronización de config.yaml con la base de datos (Esquema Correcto Anidado)...")
+
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Error: El archivo de configuración '{CONFIG_PATH}' no fue encontrado.")
+        return
+    except yaml.YAMLError as e:
+        print(f"Error al leer el archivo YAML: {e}")
+        return
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                tenants = config.get('tenants', [])
+                if not tenants:
+                    print("Advertencia: No se encontraron tenants en config.yaml.")
+                    return
+
+                for tenant in tenants:
+                    tenant_id = tenant['id']
+                    # Sincronizar tenant
+                    print(f"Sincronizando Tenant ID: {tenant_id} - {tenant.get('name')}")
                     cur.execute(
                         """
-                        INSERT INTO zones (id, tenant_id, camera_id, name, metrics, polygon)
-                        VALUES (%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, metrics = EXCLUDED.metrics
+                        INSERT INTO tenants (id, name)
+                        VALUES (%s, %s)
+                        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
                         """,
-                        (zone["id"], tenant_id, cam["id"], zone["name"], zone["metrics"], json.dumps(zone["polygon"]))
+                        (tenant_id, tenant.get('name'))
                     )
-                    if "thresholds" in zone:
-                        for metric, thr in zone["thresholds"].items():
+
+                    # Sincronizar cámaras
+                    for camera in tenant.get('cameras', []):
+                        cam_id = camera['id']
+                        print(f"Sincronizando Cámara ID: {cam_id}")
+                        cur.execute(
+                            """
+                            INSERT INTO cameras (id, tenant_id, name, rtsp_url, location, fps)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (id) DO UPDATE SET
+                                tenant_id = EXCLUDED.tenant_id,
+                                name = EXCLUDED.name,
+                                rtsp_url = EXCLUDED.rtsp_url,
+                                location = EXCLUDED.location,
+                                fps = EXCLUDED.fps;
+                            """,
+                            (cam_id, tenant_id, camera.get('name'), camera.get('rtsp_url'), camera.get('location'), camera.get('fps', 30))
+                        )
+
+                        # Sincronizar zonas
+                        for zone in camera.get('zones', []):
+                            zone_id = zone['id']
+                            print(f"Sincronizando Zona ID: {zone_id}")
                             cur.execute(
                                 """
-                                INSERT INTO zone_thresholds (zone_id, metric, threshold)
-                                VALUES (%s,%s,%s)
-                                ON CONFLICT (zone_id, metric) DO UPDATE SET threshold = EXCLUDED.threshold
+                                INSERT INTO zones (id, tenant_id, camera_id, name, polygon, metrics)
+                                VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    tenant_id = EXCLUDED.tenant_id,
+                                    camera_id = EXCLUDED.camera_id,
+                                    name = EXCLUDED.name,
+                                    polygon = EXCLUDED.polygon,
+                                    metrics = EXCLUDED.metrics;
                                 """,
-                                (zone["id"], metric, thr)
+                                (zone_id, tenant_id, cam_id, zone.get('name'), json.dumps(zone.get('polygon')), zone.get('metrics', []))
                             )
-        conn.commit()
+
+                            # Limpiar umbrales viejos para esta zona
+                            cur.execute("DELETE FROM zone_thresholds WHERE zone_id = %s;", (zone_id,))
+
+                            # Sincronizar nuevos umbrales
+                            if 'thresholds' in zone:
+                                for threshold_item in zone['thresholds']:
+                                    cur.execute(
+                                        """
+                                        INSERT INTO zone_thresholds (zone_id, metric, level, threshold)
+                                        VALUES (%s, %s, %s, %s);
+                                        """,
+                                        (zone_id, threshold_item.get('metric'), threshold_item.get('level'), threshold_item.get('threshold'))
+                                    )
+
+                conn.commit()
+                print("Sincronización completada exitosamente.")
+
+    except (psycopg2.Error, KeyError, TypeError) as e:
+        print(f"Ocurrió un error durante la sincronización: {e}")
+        if 'conn' in locals() and conn:
+            conn.rollback()
 
 if __name__ == "__main__":
-    ensure_schema()
+    sync_config_to_db()
