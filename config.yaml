@@ -12,12 +12,14 @@ tenants:
             name: "Interior Area"
             metrics: ["people_inside"]
             polygon: [[84, 163], [307, 96], [286, 77], [348, 68], [341, 27], [418, 14], [560, 109], [577, 226], [498, 353], [148, 355], [83, 165]]
+            ghost_timeout_minutes: 90
             thresholds:
               - { metric: "occupancy", level: "critical", threshold: 12 }
           - id: 2
             name: "Register"
             metrics: ["dwell", "people_inside"]
             polygon: [[107, 156], [144, 249], [230, 215], [215, 121], [107, 151]]
+            ghost_timeout_minutes: 5
             thresholds:
               - { metric: "dwell", level: "critical", threshold: 60 }
               - { metric: "occupancy", level: "critical", threshold: 5 }
@@ -31,6 +33,7 @@ tenants:
             name: "Drivers Queue"
             metrics: ["people_inside"]
             polygon: [[127, 328], [262, 152], [394, 95], [474, 194], [526, 229], [529, 354], [150, 355], [128, 331]]
+            ghost_timeout_minutes: 10
             thresholds:
               - { metric: "occupancy", level: "critical", threshold: 3 }
       - id: 4
@@ -43,6 +46,7 @@ tenants:
             name: "Dining Area"
             metrics: ["people_inside"]
             polygon: [[93, 226], [404, 44], [563, 60], [493, 352], [130, 349], [92, 229]]
+            ghost_timeout_minutes: 90
     
       - id: 5
         name: "Break Area"
@@ -54,6 +58,7 @@ tenants:
             name: "Break Area"
             metrics: ["dwell", "people_inside"]
             polygon: [[216, 74], [348, 47], [383, 101], [486, 86], [592, 278], [481, 354], [237, 352], [220, 273], [215, 74]]
+            ghost_timeout_minutes: 15
             thresholds:
               - { metric: "occupancy", level: "critical", threshold: 5 }
 
@@ -67,6 +72,7 @@ tenants:
             name: "Inside Dining Area"
             metrics: ["people_inside"]
             polygon: [[55, 184], [310, 60], [355, 38], [507, 62], [450, 355], [140, 353], [55, 185]]
+            ghost_timeout_minutes: 90
       - id: 7
         name: "Kitchen Area 1"
         location: "Buijo City Center"
@@ -77,6 +83,7 @@ tenants:
             name: "Kitchen Area 1"
             metrics: ["people_inside"]
             polygon: [[332, 15], [194, 40], [194, 311], [321, 296], [354, 352], [626, 343], [507, 126], [404, 131], [333, 16]]
+            ghost_timeout_minutes: 10
       - id: 8
         name: "Kitchen Area 2"
         location: "Buijo City Center"
@@ -87,3 +94,4 @@ tenants:
             name: "Kitchen Area 2"
             metrics: ["people_inside"]
             polygon: [[181, 3], [48, 355], [515, 354], [547, 303], [379, 2], [180, 2]]
+            ghost_timeout_minutes: 10

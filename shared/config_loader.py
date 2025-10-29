@@ -68,16 +68,17 @@ def sync_config_to_db():
                             print(f"Sincronizando Zona ID: {zone_id}")
                             cur.execute(
                                 """
-                                INSERT INTO zones (id, tenant_id, camera_id, name, polygon, metrics)
-                                VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+                                INSERT INTO zones (id, tenant_id, camera_id, name, polygon, metrics, ghost_timeout_minutes)
+                                VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
                                 ON CONFLICT (id) DO UPDATE SET
                                     tenant_id = EXCLUDED.tenant_id,
                                     camera_id = EXCLUDED.camera_id,
                                     name = EXCLUDED.name,
                                     polygon = EXCLUDED.polygon,
-                                    metrics = EXCLUDED.metrics;
+                                    metrics = EXCLUDED.metrics,
+                                    ghost_timeout_minutes = EXCLUDED.ghost_timeout_minutes;
                                 """,
-                                (zone_id, tenant_id, cam_id, zone.get('name'), json.dumps(zone.get('polygon')), zone.get('metrics', []))
+                                (zone_id, tenant_id, cam_id, zone.get('name'), json.dumps(zone.get('polygon')), zone.get('metrics', []), zone.get('ghost_timeout_minutes', 60))
                             )
 
                             # Limpiar umbrales viejos para esta zona

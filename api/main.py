@@ -62,23 +62,29 @@ def _snapshot():
         try:
             with get_conn() as conn:
                 with conn.cursor() as cur:
-                    # 1. Obtener la ocupación actual por zona
+                    # 1. Obtener la ocupación actual por zona (consulta mejorada)
                     cur.execute(
                         """
                         WITH last_events AS (
                             SELECT DISTINCT ON (zone_id, track_id)
                                    zone_id,
                                    event,
-                                   ts -- Necesitamos el timestamp del último evento
+                                   ts
                             FROM zone_events
                             ORDER BY zone_id, track_id, ts DESC
                         )
-                        SELECT zone_id, COUNT(*) AS occupancy
-                        FROM last_events
-                        WHERE 
-                            event = 'enter' AND
-                            ts > NOW() - INTERVAL '60 minutes' -- FIX: Solo contar si entraron en las últimas 20 mins
-                        GROUP BY zone_id;
+                        SELECT
+                            le.zone_id,
+                            COUNT(*) AS occupancy
+                        FROM
+                            last_events le
+                        JOIN
+                            zones z ON le.zone_id = z.id
+                        WHERE
+                            le.event = 'enter'
+                            AND le.ts > NOW() - (z.ghost_timeout_minutes * INTERVAL '1 minute')
+                        GROUP BY
+                            le.zone_id;
                         """
                     )
                     occupancy_rows = cur.fetchall()
