@@ -11,6 +11,7 @@ __pycache__/
 # Virtual environment
 venv/
 .venv/
+.env
 
 # Redis
 dump.rdb
@@ -18,3 +19,4 @@ dump.rdb
 # IDE / Editor specific
 .vscode/
 .idea/
+/__init__.py
