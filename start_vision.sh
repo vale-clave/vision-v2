@@ -25,7 +25,7 @@ echo "Lanzando servicios principales (API, Ingest, Alerter)..."
 
 # API
 tmux new-window -t $SESSION_NAME:2 -n "API"
-tmux send-keys -t $SESSION_NAME:2 "uvicorn api.main:app --host 0.0.0.0 --port 8000" C-m
+tmux send-keys -t $SESSION_NAME:2 "uvicorn api.main:app --host 0.0.0.0 --port 8888" C-m
 
 # Ingest
 tmux new-window -t $SESSION_NAME:3 -n "Ingest"

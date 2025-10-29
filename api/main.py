@@ -6,6 +6,8 @@ from shared.settings import settings
 import asyncio
 import json
 from decimal import Decimal
+import time
+import psycopg2
 
 # --- FIX: Añadir Middleware de CORS ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,56 +52,71 @@ def _snapshot():
     """
     Calcula un snapshot de las métricas actuales (ocupación y dwell time)
     consultando la base de datos.
+    Implementa reintentos para manejar conexiones de BD inestables.
     """
     now = datetime.utcnow()
     metrics = {}
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    # 1. Obtener la ocupación actual por zona
+                    cur.execute(
+                        """
+                        WITH last_events AS (
+                            SELECT DISTINCT ON (zone_id, track_id)
+                                   zone_id,
+                                   event,
+                                   ts -- Necesitamos el timestamp del último evento
+                            FROM zone_events
+                            ORDER BY zone_id, track_id, ts DESC
+                        )
+                        SELECT zone_id, COUNT(*) AS occupancy
+                        FROM last_events
+                        WHERE 
+                            event = 'enter' AND
+                            ts > NOW() - INTERVAL '60 minutes' -- FIX: Solo contar si entraron en las últimas 20 mins
+                        GROUP BY zone_id;
+                        """
+                    )
+                    occupancy_rows = cur.fetchall()
+                    for row in occupancy_rows:
+                        zone_id, occupancy = row
+                        if zone_id not in metrics:
+                            metrics[zone_id] = {}
+                        metrics[zone_id]['occupancy'] = occupancy
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # 1. Obtener la ocupación actual por zona
-            cur.execute(
-                """
-                WITH last_events AS (
-                    SELECT DISTINCT ON (zone_id, track_id)
-                           zone_id,
-                           event,
-                           ts -- Necesitamos el timestamp del último evento
-                    FROM zone_events
-                    ORDER BY zone_id, track_id, ts DESC
-                )
-                SELECT zone_id, COUNT(*) AS occupancy
-                FROM last_events
-                WHERE 
-                    event = 'enter' AND
-                    ts > NOW() - INTERVAL '60 minutes' -- FIX: Solo contar si entraron en las últimas 20 mins
-                GROUP BY zone_id;
-                """
-            )
-            occupancy_rows = cur.fetchall()
-            for row in occupancy_rows:
-                zone_id, occupancy = row
-                if zone_id not in metrics:
-                    metrics[zone_id] = {}
-                metrics[zone_id]['occupancy'] = occupancy
+                    # 2. Obtener el dwell time promedio de los últimos 5 minutos
+                    cur.execute(
+                        """
+                        SELECT zone_id, AVG(dwell_seconds) AS avg_dwell_seconds_5m
+                        FROM zone_events
+                        WHERE ts > NOW() - INTERVAL '5 minutes' AND event = 'exit' AND dwell_seconds IS NOT NULL
+                        GROUP BY zone_id;
+                        """
+                    )
+                    dwell_rows = cur.fetchall()
+                    for row in dwell_rows:
+                        zone_id, avg_dwell = row
+                        if zone_id not in metrics:
+                            metrics[zone_id] = {}
+                        if avg_dwell is not None:
+                            metrics[zone_id]['avg_dwell_seconds_5m'] = avg_dwell
+            
+            # Si todo fue exitoso, salimos del bucle
+            break
 
-            # 2. Obtener el dwell time promedio de los últimos 5 minutos
-            cur.execute(
-                """
-                SELECT zone_id, AVG(dwell_seconds) AS avg_dwell_seconds_5m
-                FROM zone_events
-                WHERE ts > NOW() - INTERVAL '5 minutes' AND event = 'exit' AND dwell_seconds IS NOT NULL
-                GROUP BY zone_id;
-                """
-            )
-            dwell_rows = cur.fetchall()
-            for row in dwell_rows:
-                zone_id, avg_dwell = row
-                if zone_id not in metrics:
-                    metrics[zone_id] = {}
-                if avg_dwell is not None:
-                    # El tipo devuelto por AVG es Decimal, el encoder se encargará
-                    metrics[zone_id]['avg_dwell_seconds_5m'] = avg_dwell
-
+        except psycopg2.OperationalError as e:
+            print(f"Error de conexión a la BD (intento {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(1)  # Esperar 1 segundo antes de reintentar
+            else:
+                print("No se pudo conectar a la base de datos después de varios intentos.")
+                # Devolver métricas vacías si todos los reintentos fallan
+                metrics = {} 
+    
     # Formatear el resultado final
     data = {"timestamp": now.isoformat() + "Z", "zones": metrics}
     return data
