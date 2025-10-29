@@ -9,6 +9,9 @@ SESSION_NAME="vision"
 echo "Limpiando sesiones de tmux anteriores..."
 tmux kill-session -t $SESSION_NAME 2>/dev/null || true
 
+# Forzar el inicio del servidor de tmux
+tmux start-server
+
 # --- Paso 2: Crear nueva sesión de tmux ---
 echo "Creando nueva sesión de tmux: $SESSION_NAME"
 tmux new-session -d -s $SESSION_NAME
