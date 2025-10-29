@@ -76,7 +76,7 @@ tenants:
           - id: 7
             name: "Kitchen Area 1"
             metrics: ["people_inside"]
-            polygon: [[153, 146], [277, 355], [522, 354], [550, 238], [295, 100], [154, 145]]
+            polygon: [[332, 15], [194, 40], [194, 311], [321, 296], [354, 352], [626, 343], [507, 126], [404, 131], [333, 16]]
       - id: 8
         name: "Kitchen Area 2"
         location: "Buijo City Center"
