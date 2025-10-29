@@ -1,1 +1,20 @@
-.env
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+venv/
+.venv/
+
+# Redis
+dump.rdb
+
+# IDE / Editor specific
+.vscode/
+.idea/
