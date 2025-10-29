@@ -19,4 +19,4 @@ dump.rdb
 # IDE / Editor specific
 .vscode/
 .idea/
-/__init__.py
+__init__.py
