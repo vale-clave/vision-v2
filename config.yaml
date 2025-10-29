@@ -83,7 +83,7 @@ tenants:
             name: "Kitchen Area 1"
             metrics: ["people_inside"]
             polygon: [[332, 15], [194, 40], [194, 311], [321, 296], [354, 352], [626, 343], [507, 126], [404, 131], [333, 16]]
-            ghost_timeout_minutes: 10
+            ghost_timeout_minutes: 5
       - id: 8
         name: "Kitchen Area 2"
         location: "Buijo City Center"
@@ -94,4 +94,4 @@ tenants:
             name: "Kitchen Area 2"
             metrics: ["people_inside"]
             polygon: [[181, 3], [48, 355], [515, 354], [547, 303], [379, 2], [180, 2]]
-            ghost_timeout_minutes: 10
+            ghost_timeout_minutes: 5
