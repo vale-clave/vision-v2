@@ -1,6 +1,6 @@
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
-from psycopg2 import OperationalError, InterfaceError, PoolError
+from psycopg2 import OperationalError, InterfaceError
 from contextlib import contextmanager
 from .settings import settings
 import time
@@ -43,11 +43,13 @@ def get_conn(max_retries: int = 3):
     conn = None
     for attempt in range(max_retries):
         try:
-            # Intentar obtener una conexión del pool con timeout
+            # Intentar obtener una conexión del pool
             try:
                 conn = _POOL.getconn()
-            except PoolError as e:
-                if "connection pool exhausted" in str(e).lower():
+            except Exception as e:
+                # Manejar errores del pool (incluyendo pool agotado)
+                error_msg = str(e).lower()
+                if "pool" in error_msg and ("exhausted" in error_msg or "timeout" in error_msg):
                     print(f"Pool agotado (intento {attempt + 1}/{max_retries}). Esperando...")
                     if attempt < max_retries - 1:
                         time.sleep(1 + attempt)  # Backoff progresivo
@@ -58,6 +60,7 @@ def get_conn(max_retries: int = 3):
                         init_pool()
                         conn = _POOL.getconn()
                 else:
+                    # Otro tipo de error, relanzar
                     raise
             
             # Verificar si la conexión está activa (solo si no es la primera vez)
