@@ -5,7 +5,7 @@ from typing import List, Tuple
 
 import redis
 from psycopg2.extras import execute_values
-from psycopg2 import OperationalError, InterfaceError
+from psycopg2 import OperationalError, InterfaceError, PoolError
 
 from shared.db import get_conn, init_pool
 from shared.settings import settings
@@ -54,6 +54,22 @@ def _flush_batch(batch: List[Tuple]):
                 print(f"ERROR CRÍTICO: No se pudo escribir batch después de {MAX_RETRIES} intentos.")
                 print(f"Batch perdido contiene {len(batch)} eventos")
                 # Podrías implementar aquí un mecanismo de fallback (ej: escribir a un archivo)
+                raise
+                
+        except PoolError as e:
+            # Manejar específicamente el error de pool agotado
+            error_msg = str(e)
+            print(f"Pool de conexiones agotado (intento {attempt + 1}/{MAX_RETRIES}): {error_msg}")
+            
+            if attempt < MAX_RETRIES - 1:
+                # Esperar más tiempo cuando el pool está agotado
+                delay = RETRY_DELAY * (2 ** attempt) + 2
+                print(f"Esperando {delay} segundos antes de reintentar...")
+                time.sleep(delay)
+                # Forzar recreación del pool
+                init_pool()
+            else:
+                print(f"ERROR CRÍTICO: Pool agotado después de {MAX_RETRIES} intentos.")
                 raise
                 
         except Exception as e:

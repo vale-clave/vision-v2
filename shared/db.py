@@ -1,6 +1,6 @@
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
-from psycopg2 import OperationalError, InterfaceError
+from psycopg2 import OperationalError, InterfaceError, PoolError
 from contextlib import contextmanager
 from .settings import settings
 import time
@@ -8,7 +8,8 @@ import time
 _POOL: ThreadedConnectionPool | None = None
 
 
-def init_pool(minconn: int = 1, maxconn: int = 10):
+def init_pool(minconn: int = 2, maxconn: int = 20):
+    """Inicializa el pool de conexiones con más conexiones por defecto"""
     global _POOL
     if _POOL is not None:
         try:
@@ -34,32 +35,43 @@ def _is_connection_closed(conn):
 
 @contextmanager
 def get_conn(max_retries: int = 3):
+    """Obtiene una conexión del pool con manejo robusto de errores"""
     global _POOL
     if _POOL is None:
         init_pool()
     
     conn = None
-    connection_returned = False
-    
     for attempt in range(max_retries):
         try:
-            conn = _POOL.getconn()
+            # Intentar obtener una conexión del pool con timeout
+            try:
+                conn = _POOL.getconn()
+            except PoolError as e:
+                if "connection pool exhausted" in str(e).lower():
+                    print(f"Pool agotado (intento {attempt + 1}/{max_retries}). Esperando...")
+                    if attempt < max_retries - 1:
+                        time.sleep(1 + attempt)  # Backoff progresivo
+                        continue
+                    else:
+                        # Si el pool está agotado después de varios intentos, recrearlo
+                        print("Pool agotado después de varios intentos. Recreando pool...")
+                        init_pool()
+                        conn = _POOL.getconn()
+                else:
+                    raise
             
-            # Verificar si la conexión está activa
-            if _is_connection_closed(conn):
-                # La conexión está cerrada, intentar cerrarla y obtener una nueva
+            # Verificar si la conexión está activa (solo si no es la primera vez)
+            if attempt > 0 and _is_connection_closed(conn):
+                # La conexión está cerrada, cerrarla y obtener una nueva
                 try:
                     _POOL.putconn(conn, close=True)
-                    connection_returned = True
                 except Exception:
                     pass
                 
-                # Si falla múltiples veces, recrear el pool
                 if attempt >= max_retries - 1:
                     print("Recreando pool de conexiones debido a conexiones cerradas")
                     init_pool()
                     conn = _POOL.getconn()
-                    connection_returned = False
                 else:
                     conn = None
                     time.sleep(0.5)
@@ -68,34 +80,55 @@ def get_conn(max_retries: int = 3):
             # Si llegamos aquí, tenemos una conexión válida
             try:
                 yield conn
-                connection_returned = True
-                return
             finally:
-                # Devolver la conexión al pool solo si no se devolvió antes
-                if conn and not connection_returned:
+                # SIEMPRE devolver la conexión al pool
+                if conn:
                     try:
-                        _POOL.putconn(conn)
-                        connection_returned = True
-                    except Exception:
-                        pass
+                        # Verificar si la conexión está cerrada antes de devolverla
+                        if conn.closed:
+                            _POOL.putconn(conn, close=True)
+                        else:
+                            _POOL.putconn(conn)
+                    except Exception as e:
+                        print(f"Error al devolver conexión al pool: {e}")
+                        # Si hay error, intentar cerrarla forzadamente
+                        try:
+                            if not conn.closed:
+                                conn.close()
+                        except Exception:
+                            pass
+            
+            # Si llegamos aquí, todo fue exitoso
+            return
             
         except (OperationalError, InterfaceError) as e:
             print(f"Error de conexión (intento {attempt + 1}/{max_retries}): {e}")
-            if conn and not connection_returned:
+            if conn:
                 try:
                     _POOL.putconn(conn, close=True)
-                    connection_returned = True
                 except Exception:
                     pass
             
             if attempt < max_retries - 1:
-                # Esperar antes de reintentar
-                time.sleep(1)
+                time.sleep(1 + attempt)
                 # Recrear el pool si es necesario
                 if attempt >= 1:
                     print("Recreando pool de conexiones")
                     init_pool()
                 conn = None
-                connection_returned = False
+            else:
+                raise
+        except Exception as e:
+            # Manejar cualquier otro error
+            print(f"Error inesperado obteniendo conexión (intento {attempt + 1}/{max_retries}): {e}")
+            if conn:
+                try:
+                    _POOL.putconn(conn, close=True)
+                except Exception:
+                    pass
+            
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                conn = None
             else:
                 raise
