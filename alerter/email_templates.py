@@ -1,8 +1,8 @@
 """Templates HTML para emails de alertas, adaptado para V2"""
 from datetime import datetime
-import os
+from shared.settings import settings
 
-RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "Clave Alerts <onboarding@resend.dev>")
+RESEND_FROM_EMAIL = settings.resend_from_email
 
 def get_alert_html(metric: str, level: str, value: float, threshold: float, zone_name: str, camera_name: str) -> tuple[str, str, str]:
     """
