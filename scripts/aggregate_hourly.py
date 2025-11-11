@@ -134,9 +134,7 @@ ON CONFLICT (hour, tenant_id, store_id, zone_id) DO UPDATE SET
     total_entries = EXCLUDED.total_entries;
 """
 
-CLEANUP_QUERY = """
-DELETE FROM raw_vision_rogers.zone_events WHERE ts < %s;
-"""
+# CLEANUP_QUERY ya no se usa directamente, la lógica está en cleanup_raw_data()
 
 
 def is_store_open(now_utc: datetime, store: DictCursor) -> bool:
@@ -188,13 +186,38 @@ def run_aggregation_for_store(conn, store: DictCursor, target_hour_utc: datetime
 
 
 def cleanup_raw_data(conn, end_of_hour_utc: datetime):
-    """Borra los datos crudos ya procesados."""
+    """Borra los datos crudos ya procesados en lotes para evitar bloqueos largos."""
     print(f"Limpiando datos crudos anteriores a {end_of_hour_utc.isoformat()}...")
     try:
         with conn.cursor() as cur:
-            cur.execute(CLEANUP_QUERY, (end_of_hour_utc.isoformat(),))
-        conn.commit()
-        print("Limpieza completada.")
+            total_deleted = 0
+            batch_size = 100000
+            max_iterations = 100  # Prevenir bucles infinitos
+            
+            for iteration in range(max_iterations):
+                cur.execute("""
+                    WITH deleted AS (
+                        DELETE FROM raw_vision_rogers.zone_events 
+                        WHERE ctid IN (
+                            SELECT ctid FROM raw_vision_rogers.zone_events 
+                            WHERE ts < %s 
+                            LIMIT %s
+                        )
+                        RETURNING *
+                    )
+                    SELECT COUNT(*) FROM deleted;
+                """, (end_of_hour_utc.isoformat(), batch_size))
+                
+                deleted_count = cur.fetchone()[0]
+                total_deleted += deleted_count
+                conn.commit()
+                
+                if deleted_count == 0:
+                    break
+                
+                print(f"  Eliminados {total_deleted:,} eventos (lote de {deleted_count:,})...")
+            
+            print(f"Limpieza completada. Total eliminado: {total_deleted:,} eventos.")
     except psycopg2.Error as e:
         print(f"Error de base de datos durante la limpieza: {e}")
         conn.rollback()
