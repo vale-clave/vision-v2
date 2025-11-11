@@ -38,6 +38,10 @@ tmux send-keys -t $SESSION_NAME:3 "PYTHONPATH=. python3 ingest/ingest.py" C-m
 tmux new-window -t $SESSION_NAME:4 -n "Alerter"
 tmux send-keys -t $SESSION_NAME:4 "PYTHONPATH=. python3 -m alerter.alerter" C-m
 
+# Aggregate Scheduler (ejecuta aggregate_hourly.py cada hora)
+tmux new-window -t $SESSION_NAME:5 -n "AggregateScheduler"
+tmux send-keys -t $SESSION_NAME:5 "PYTHONPATH=. python3 scripts/aggregate_scheduler.py" C-m
+
 # --- Paso 5: Lanzar dinámicamente los workers y captures ---
 echo "Lanzando workers y captures dinámicamente desde config.yaml..."
 
@@ -52,7 +56,7 @@ fi
 
 CAMERA_IDS=$(yq e '.tenants[].cameras[].id' config.yaml)
 
-WINDOW_INDEX=5
+WINDOW_INDEX=6
 for CAM_ID in $CAMERA_IDS
 do
   echo "Lanzando servicios para Cámara ID: $CAM_ID"

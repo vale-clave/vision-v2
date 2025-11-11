@@ -35,6 +35,16 @@ services:
     depends_on:
       - api 
 
+  aggregate_scheduler:
+    build:
+      context: .
+      dockerfile: shared/Dockerfile
+    command: python3 scripts/aggregate_scheduler.py
+    env_file: .env
+    depends_on:
+      - ingest
+    restart: unless-stopped
+
   capture-cam-1:
     build:
       context: .
