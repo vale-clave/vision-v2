@@ -1,6 +1,7 @@
 tenants:
   - id: 1
     name: "Rogers"
+    store_id: "54f59d0a-be6e-411d-8f9e-1ac505fea992"
     cameras:
       - id: 1
         name: "Main Area"

@@ -17,18 +17,38 @@ def sync_config(conn, config):
             # Iterar sobre cada tenant en el archivo de configuración
             for tenant_config in config.get('tenants', []):
                 tenant_name = tenant_config['name']
-                print(f"Procesando tenant: {tenant_name}")
-
-                # 1. Obtener el UUID del tenant y de la tienda desde la DB
-                # Asumimos una correspondencia 1 a 1 entre tenant_name y store_name por simplicidad
-                cur.execute("SELECT id, tenant_id FROM public.stores WHERE name = %s", (tenant_name,))
+                tenant_id_yaml = tenant_config.get('id')
+                store_id_yaml = tenant_config.get('store_id')
+                
+                print(f"Procesando tenant: {tenant_name} (ID YAML: {tenant_id_yaml})")
+                
+                # 1. Validar que tenemos un store_id en el YAML
+                if not store_id_yaml:
+                    print(f"  ERROR: No se especificó 'store_id' para el tenant '{tenant_name}'. Saltando este tenant.")
+                    continue
+                
+                # 2. Verificar que la tienda existe y pertenece al tenant correcto
+                cur.execute("""
+                    SELECT s.id, s.tenant_id, s.name, t.name as tenant_name
+                    FROM public.stores s
+                    JOIN public.tenants t ON s.tenant_id = t.id
+                    WHERE s.id = %s
+                """, (store_id_yaml,))
                 store_row = cur.fetchone()
                 
                 if not store_row:
-                    print(f"  ADVERTENCIA: No se encontró una tienda con el nombre '{tenant_name}' en 'public.stores'. Saltando este tenant.")
+                    print(f"  ERROR: No se encontró una tienda con el ID '{store_id_yaml}' en 'public.stores'. Saltando este tenant.")
                     continue
                 
                 store_id = store_row['id']
+                tenant_id_uuid = store_row['tenant_id']
+                
+                # 3. Verificar que el tenant del YAML coincide con el tenant de la tienda
+                if tenant_name.lower() != store_row['tenant_name'].lower():
+                    print(f"  ADVERTENCIA: El tenant '{tenant_name}' del YAML no coincide con el tenant '{store_row['tenant_name']}' de la tienda. Continuando de todas formas...")
+                
+                print(f"  Tienda encontrada: UUID={store_id}, Name={store_row['name']}")
+                print(f"  Tenant asociado: UUID={tenant_id_uuid}, Name={store_row['tenant_name']}")
                 
                 # 2. Sincronizar Cámaras
                 for camera_config in tenant_config.get('cameras', []):
