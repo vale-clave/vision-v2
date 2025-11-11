@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pydantic import PostgresDsn, RedisDsn
+from typing import List
 
 class Settings(BaseSettings):
     database_url: PostgresDsn
@@ -8,7 +9,7 @@ class Settings(BaseSettings):
     
     # --- Nuevas variables para el servicio de Alertas ---
     resend_api_key: str | None = None
-    alert_email_to: str | None = None
+    alert_email_to: List[str] | None = None
     google_api_key: str | None = None
 
     class Config:

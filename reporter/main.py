@@ -18,18 +18,18 @@ def fetch_weekly_data(conn, start_date, end_date):
     """Obtiene los datos horarios agregados de la última semana."""
     query = """
         SELECT
-            hm.ts,
-            z.name as zone_name,
+            fm.hour as ts,
+            fm.zone_name,
             c.name as camera_name,
-            hm.avg_occupancy,
-            hm.max_occupancy,
-            hm.avg_dwell_seconds,
-            hm.total_entries
-        FROM hourly_metrics hm
-        JOIN zones z ON hm.zone_id = z.id
-        JOIN cameras c ON z.camera_id = c.id
-        WHERE hm.ts >= %s AND hm.ts < %s
-        ORDER BY z.name, hm.ts;
+            fm.avg_occupancy,
+            fm.max_occupancy,
+            fm.avg_dwell_seconds,
+            fm.total_entries
+        FROM analytics.fact_vision_metrics_hourly fm
+        JOIN raw_vision_rogers.zones z ON fm.zone_id = z.id
+        JOIN raw_vision_rogers.cameras c ON z.camera_id = c.id
+        WHERE fm.hour >= %s AND fm.hour < %s
+        ORDER BY fm.zone_name, fm.hour;
     """
     # Usamos un cursor con nombre para obtener los nombres de las columnas
     with conn.cursor(cursor_factory=DictCursor) as cur:

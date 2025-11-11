@@ -32,7 +32,7 @@ def _get_current_metrics() -> dict:
                 """
                 WITH last_events AS (
                     SELECT DISTINCT ON (zone_id, track_id) zone_id, event, ts
-                    FROM zone_events ORDER BY zone_id, track_id, ts DESC
+                    FROM raw_vision_rogers.zone_events ORDER BY zone_id, track_id, ts DESC
                 )
                 SELECT zone_id, COUNT(*) AS occupancy
                 FROM last_events
@@ -46,11 +46,13 @@ def _get_current_metrics() -> dict:
                 metrics[zone_id]['occupancy'] = occupancy
 
             # 2. Dwell Time
+            # Nota: El dwell time ahora se calcula durante la agregación horaria,
+            # por lo que consultamos la tabla de métricas agregadas en lugar de eventos crudos
             cur.execute(
                 """
-                SELECT zone_id, AVG(dwell_seconds) AS avg_dwell
-                FROM zone_events
-                WHERE ts > NOW() - INTERVAL '5 minutes' AND event = 'exit' AND dwell_seconds IS NOT NULL
+                SELECT zone_id, AVG(avg_dwell_seconds) AS avg_dwell
+                FROM analytics.fact_vision_metrics_hourly
+                WHERE hour > NOW() - INTERVAL '1 hour'
                 GROUP BY zone_id;
                 """
             )
@@ -73,9 +75,9 @@ def _check_alerts():
             cur.execute(
                 """
                 SELECT zt.zone_id, z.name, c.name, zt.metric, zt.threshold, zt.level
-                FROM zone_thresholds zt
-                JOIN zones z ON zt.zone_id = z.id
-                JOIN cameras c ON z.camera_id = c.id
+                FROM raw_vision_rogers.zone_thresholds zt
+                JOIN raw_vision_rogers.zones z ON zt.zone_id = z.id
+                JOIN raw_vision_rogers.cameras c ON z.camera_id = c.id
                 """
             )
             thresholds = cur.fetchall()
@@ -112,7 +114,7 @@ def _check_alerts():
                 )
                 params = {
                     "from": from_email,
-                    "to": [ALERT_EMAIL_TO],
+                    "to": ALERT_EMAIL_TO,
                     "subject": subject,
                     "html": html,
                 }

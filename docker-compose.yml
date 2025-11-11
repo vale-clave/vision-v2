@@ -30,7 +30,7 @@ services:
     build:
       context: .
       dockerfile: shared/Dockerfile
-    command: python3 shared/config_loader.py
+    command: python3 scripts/sync_config.py
     env_file: .env
     depends_on:
       - api 

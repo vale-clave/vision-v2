@@ -31,7 +31,7 @@ def _flush_batch(batch: List[Tuple]):
                 with conn.cursor() as cur:
                     execute_values(cur,
                         """
-                        INSERT INTO zone_events (tenant_id, camera_id, zone_id, track_id, event, ts, dwell_seconds)
+                        INSERT INTO raw_vision_rogers.zone_events (camera_id, zone_id, track_id, event, ts)
                         VALUES %s
                         """,
                         batch
@@ -88,15 +88,13 @@ def main():
         if item:
             try:
                 d = json.loads(item)
-                dwell = d.get("dwell")
+                # Omitimos tenant_id y dwell, ya que no están en la nueva tabla de ingesta
                 batch.append((
-                    d.get("tenant_id", 1),
                     d["camera_id"],
                     d["zone_id"],
                     d["track_id"],
                     d["event"],
                     d["ts"],
-                    dwell
                 ))
             except Exception as e:
                 print(f"Error al parsear item de Redis: {e}")

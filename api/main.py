@@ -70,7 +70,7 @@ def _snapshot():
                                    zone_id,
                                    event,
                                    ts
-                            FROM zone_events
+                            FROM raw_vision_rogers.zone_events
                             ORDER BY zone_id, track_id, ts DESC
                         )
                         SELECT
@@ -78,11 +78,9 @@ def _snapshot():
                             COUNT(*) AS occupancy
                         FROM
                             last_events le
-                        JOIN
-                            zones z ON le.zone_id = z.id
                         WHERE
                             le.event = 'enter'
-                            AND le.ts > NOW() - (z.ghost_timeout_minutes * INTERVAL '1 minute')
+                            AND le.ts > NOW() - INTERVAL '20 minutes'
                         GROUP BY
                             le.zone_id;
                         """
@@ -95,11 +93,13 @@ def _snapshot():
                         metrics[zone_id]['occupancy'] = occupancy
 
                     # 2. Obtener el dwell time promedio de los últimos 5 minutos
+                    # Nota: El dwell time ahora se calcula durante la agregación horaria,
+                    # por lo que consultamos la tabla de métricas agregadas en lugar de eventos crudos
                     cur.execute(
                         """
-                        SELECT zone_id, AVG(dwell_seconds) AS avg_dwell_seconds_5m
-                        FROM zone_events
-                        WHERE ts > NOW() - INTERVAL '5 minutes' AND event = 'exit' AND dwell_seconds IS NOT NULL
+                        SELECT zone_id, AVG(avg_dwell_seconds) AS avg_dwell_seconds_5m
+                        FROM analytics.fact_vision_metrics_hourly
+                        WHERE hour > NOW() - INTERVAL '1 hour'
                         GROUP BY zone_id;
                         """
                     )

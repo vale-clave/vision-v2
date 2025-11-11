@@ -19,7 +19,7 @@ tmux new-session -d -s $SESSION_NAME
 # --- Paso 3: Sincronizar la configuración con la base de datos ---
 echo "Sincronizando config.yaml con la base de datos..."
 tmux new-window -t $SESSION_NAME:1 -n "ConfigLoader"
-tmux send-keys -t $SESSION_NAME:1 "PYTHONPATH=. python3 shared/config_loader.py" C-m
+tmux send-keys -t $SESSION_NAME:1 "PYTHONPATH=. python3 scripts/sync_config.py" C-m
 # Dar un pequeño margen para que la sincronización termine antes de lanzar los otros servicios
 sleep 5
 

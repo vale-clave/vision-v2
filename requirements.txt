@@ -21,3 +21,5 @@ resend==0.7.0
 # Dependencias para el servicio de reportería
 google-generativeai
 python-dotenv
+pytz
+PyYAML

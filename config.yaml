@@ -21,7 +21,6 @@ tenants:
             polygon: [[107, 156], [144, 249], [230, 215], [215, 121], [107, 151]]
             ghost_timeout_minutes: 5
             thresholds:
-              - { metric: "dwell", level: "critical", threshold: 60 }
               - { metric: "occupancy", level: "critical", threshold: 5 }
       - id: 2
         name: "Drivers Area"
