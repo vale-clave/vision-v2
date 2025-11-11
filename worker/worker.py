@@ -60,6 +60,11 @@ print(f"Worker started for Camera ID: {CAMERA_ID}")
 
 # Diccionario para guardar el estado de los tracks
 prev_tracks = {}
+# Diccionario para guardar el último tiempo que se generó un evento para cada (track_id, zone_id)
+# Esto previene eventos duplicados muy seguidos (debounce)
+last_event_time = {}
+# Cooldown mínimo entre eventos del mismo track en la misma zona (en segundos)
+EVENT_COOLDOWN_SECONDS = 2.0
 
 while True:
     # 1. Esperar bloqueantemente por un nuevo frame desde la cola de Redis
@@ -138,46 +143,72 @@ while True:
             cy = (y1 + y2) / 2
             current_tracks[track_id] = Point(cx, cy)
 
-    # --- Lógica de Eventos de Entrada/Salida de Zona (sin cambios) ---
+    # --- Lógica de Eventos de Entrada/Salida de Zona con Debounce ---
+    current_time = time.time()
+    
     for track_id, point in current_tracks.items():
         for zone_id, zinfo in ZONES.items():
             key = (track_id, zone_id)
+            event_key = (track_id, zone_id, "enter")
+            
             if zinfo["poly"].contains(point):
                 if key not in prev_tracks:
-                    print(f"EVENT: Track {track_id} ENTERED zone {zone_id} ('{zinfo['name']}')")
-                    evt = {
-                        "tenant_id": TENANT_ID,
-                        "camera_id": CAMERA_ID,
-                        "zone_id": zone_id,
-                        "track_id": track_id,
-                        "event": "enter",
-                        "ts": datetime.utcnow().isoformat() + "Z",
-                    }
-                    redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
-                    prev_tracks[key] = time.time()
+                    # Verificar cooldown antes de generar evento de entrada
+                    last_time = last_event_time.get(event_key, 0)
+                    if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
+                        print(f"EVENT: Track {track_id} ENTERED zone {zone_id} ('{zinfo['name']}')")
+                        evt = {
+                            "tenant_id": TENANT_ID,
+                            "camera_id": CAMERA_ID,
+                            "zone_id": zone_id,
+                            "track_id": track_id,
+                            "event": "enter",
+                            "ts": datetime.utcnow().isoformat() + "Z",
+                        }
+                        redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                        prev_tracks[key] = current_time
+                        last_event_time[event_key] = current_time
+                    else:
+                        # Aún en cooldown, pero marcar como dentro para evitar eventos de salida falsos
+                        prev_tracks[key] = current_time
+                else:
+                    # Ya estaba dentro, actualizar el tiempo
+                    prev_tracks[key] = current_time
     
     exited_keys = []
     for key in prev_tracks:
         track_id, zone_id = key
+        event_key = (track_id, zone_id, "exit")
         
         is_outside = track_id not in current_tracks or not ZONES[zone_id]["poly"].contains(current_tracks[track_id])
 
         if is_outside:
-            start_time = prev_tracks[key]
-            print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}')")
-            evt = {
-                "tenant_id": TENANT_ID,
-                "camera_id": CAMERA_ID,
-                "zone_id": zone_id,
-                "track_id": track_id,
-                "event": "exit",
-                "ts": datetime.utcnow().isoformat() + "Z",
-            }
-            if 'dwell' in ZONES[zone_id].get('metrics', []):
-                evt['dwell'] = time.time() - start_time
-            
-            redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
-            exited_keys.append(key)
+            # Verificar cooldown antes de generar evento de salida
+            last_time = last_event_time.get(event_key, 0)
+            if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
+                start_time = prev_tracks[key]
+                print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}')")
+                evt = {
+                    "tenant_id": TENANT_ID,
+                    "camera_id": CAMERA_ID,
+                    "zone_id": zone_id,
+                    "track_id": track_id,
+                    "event": "exit",
+                    "ts": datetime.utcnow().isoformat() + "Z",
+                }
+                if 'dwell' in ZONES[zone_id].get('metrics', []):
+                    evt['dwell'] = current_time - start_time
+                
+                redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                last_event_time[event_key] = current_time
+                exited_keys.append(key)
+            # Si está en cooldown, no hacer nada (mantener el estado actual)
 
     for key in exited_keys:
         del prev_tracks[key]
+    
+    # Limpiar eventos antiguos del diccionario de cooldown (más de 1 minuto)
+    cutoff_time = current_time - 60
+    keys_to_remove = [k for k, v in last_event_time.items() if v < cutoff_time]
+    for k in keys_to_remove:
+        del last_event_time[k]
