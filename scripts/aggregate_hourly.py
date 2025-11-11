@@ -38,7 +38,7 @@ store_zones AS (
 starting_occupancy AS (
     SELECT
         zone_id,
-        COALESCE(SUM(CASE WHEN event = 'enter' THEN 1 ELSE -1 END), 0) AS occupancy
+        GREATEST(0, COALESCE(SUM(CASE WHEN event = 'enter' THEN 1 ELSE -1 END), 0)) AS occupancy
     FROM raw_vision_rogers.zone_events, time_range
     WHERE ts < start_ts_utc
     GROUP BY zone_id
@@ -63,7 +63,7 @@ occupancy_timeline AS (
     SELECT
         oc.zone_id,
         oc.ts,
-        COALESCE(so.occupancy, 0) + oc.net_change AS current_occupancy,
+        GREATEST(0, COALESCE(so.occupancy, 0) + oc.net_change) AS current_occupancy,
         LEAD(oc.ts, 1, (SELECT end_ts_utc FROM time_range)) OVER (PARTITION BY oc.zone_id ORDER BY oc.ts) - oc.ts AS duration
     FROM occupancy_changes oc
     LEFT JOIN starting_occupancy so ON oc.zone_id = so.zone_id
@@ -102,8 +102,8 @@ final_metrics AS (
     SELECT
         sz.id as zone_id,
         sz.name as zone_name,
-        COALESCE(om.avg_occupancy, so.occupancy, 0) as avg_occupancy,
-        COALESCE(om.max_occupancy, so.occupancy, 0) as max_occupancy,
+        GREATEST(0, COALESCE(om.avg_occupancy, GREATEST(0, so.occupancy), 0)) as avg_occupancy,
+        GREATEST(0, COALESCE(om.max_occupancy, GREATEST(0, so.occupancy), 0)) as max_occupancy,
         COALESCE(AVG(dt.dwell_seconds), 0) as avg_dwell_seconds,
         COALESCE(e.total_entries, 0) as total_entries
     FROM store_zones sz
