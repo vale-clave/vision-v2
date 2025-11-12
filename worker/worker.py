@@ -65,7 +65,16 @@ prev_tracks = {}
 # Esto previene eventos duplicados muy seguidos (debounce)
 last_event_time = {}
 # Cooldown mínimo entre eventos del mismo track en la misma zona (en segundos)
-EVENT_COOLDOWN_SECONDS = 2.0
+EVENT_COOLDOWN_SECONDS = 5.0  # Aumentado de 2.0 a 5.0 para reducir falsos positivos
+# Tiempo mínimo que un track debe estar en una zona antes de generar evento de entrada (en segundos)
+MIN_TRACK_AGE_FOR_ENTER = 1.0
+# Tiempo mínimo de dwell time para considerar válido (en segundos)
+MIN_DWELL_TIME_SECONDS = 3.0
+# Configuración de tracking mejorada
+TRACK_CONFIDENCE_THRESHOLD = 0.5  # Aumentado de default para reducir falsos positivos
+TRACK_IOU_THRESHOLD = 0.7  # Aumentado para reducir ID switches
+# Diccionario para rastrear cuándo se detectó por primera vez cada track
+track_first_seen = {}
 
 while True:
     # 1. Esperar bloqueantemente por un nuevo frame desde la cola de Redis
@@ -86,8 +95,19 @@ while True:
     img = Image.open(io.BytesIO(img_bytes))
     frame = np.array(img) # YOLO espera un array de numpy
 
-    # 3. Inferencia y Tracking (lógica original)
-    results = model.track(frame, classes=[0], verbose=False, persist=True, tracker="bytetrack.yaml")[0]
+    # 3. Inferencia y Tracking con configuración mejorada
+    # Configuración optimizada para reducir falsos positivos y mejorar tracking
+    results = model.track(
+        frame, 
+        classes=[0],  # Solo personas
+        verbose=False, 
+        persist=True, 
+        tracker="bytetrack.yaml",
+        conf=TRACK_CONFIDENCE_THRESHOLD,  # Filtrar detecciones con baja confianza
+        iou=TRACK_IOU_THRESHOLD,  # IOU más alto para reducir ID switches
+        imgsz=640,  # Tamaño de imagen consistente
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+    )[0]
 
     # 4. DIBUJAR ANOTACIONES Y ENVIAR A REDIS PARA EL STREAM DE VIDEO
     # El método plot() de ultralytics convenientemente devuelve el frame con las cajas dibujadas.
@@ -134,30 +154,48 @@ while True:
         redis_client.set(f"annotated_frame_cam_{CAMERA_ID}", frame_bytes)
 
 
-    # 5. Lógica de Eventos de Entrada/Salida de Zona (sin cambios)
+    # 5. Lógica de Eventos de Entrada/Salida de Zona mejorada
     current_tracks = {}
+    current_time = time.time()
+    
+    # Rastrear cuándo se vio por primera vez cada track
     if results.boxes.id is not None:
         for box in results.boxes:
             track_id = int(box.id[0])
+            confidence = float(box.conf[0].cpu().numpy())
+            
+            # Filtrar detecciones con confianza muy baja (doble filtro)
+            if confidence < TRACK_CONFIDENCE_THRESHOLD:
+                continue
+            
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             cx = (x1 + x2) / 2
             cy = (y1 + y2) / 2
             current_tracks[track_id] = Point(cx, cy)
+            
+            # Registrar cuándo se vio por primera vez este track
+            if track_id not in track_first_seen:
+                track_first_seen[track_id] = current_time
 
-    # --- Lógica de Eventos de Entrada/Salida de Zona con Debounce ---
-    current_time = time.time()
-    
+    # --- Lógica de Eventos de Entrada/Salida de Zona con Debounce mejorado ---
     for track_id, point in current_tracks.items():
+        # Verificar que el track tenga suficiente edad antes de generar eventos
+        track_age = current_time - track_first_seen.get(track_id, current_time)
+        
         for zone_id, zinfo in ZONES.items():
             key = (track_id, zone_id)
             event_key = (track_id, zone_id, "enter")
             
             if zinfo["poly"].contains(point):
                 if key not in prev_tracks:
-                    # Verificar cooldown antes de generar evento de entrada
+                    # Verificar cooldown y edad mínima del track antes de generar evento de entrada
                     last_time = last_event_time.get(event_key, 0)
-                    if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
-                        print(f"EVENT: Track {track_id} ENTERED zone {zone_id} ('{zinfo['name']}')")
+                    time_since_last_event = current_time - last_time
+                    
+                    # Requerir que el track tenga al menos MIN_TRACK_AGE_FOR_ENTER segundos de edad
+                    # y que haya pasado el cooldown
+                    if time_since_last_event >= EVENT_COOLDOWN_SECONDS and track_age >= MIN_TRACK_AGE_FOR_ENTER:
+                        print(f"EVENT: Track {track_id} ENTERED zone {zone_id} ('{zinfo['name']}') [age: {track_age:.1f}s]")
                         evt = {
                             "tenant_id": TENANT_ID,
                             "camera_id": CAMERA_ID,
@@ -170,7 +208,7 @@ while True:
                         prev_tracks[key] = current_time
                         last_event_time[event_key] = current_time
                     else:
-                        # Aún en cooldown, pero marcar como dentro para evitar eventos de salida falsos
+                        # Aún en cooldown o track muy nuevo, pero marcar como dentro para evitar eventos de salida falsos
                         prev_tracks[key] = current_time
                 else:
                     # Ya estaba dentro, actualizar el tiempo
@@ -213,21 +251,30 @@ while True:
                 last_time = last_event_time.get(event_key, 0)
                 if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
                     start_time = prev_tracks[key]
-                    print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}')")
-                    evt = {
-                        "tenant_id": TENANT_ID,
-                        "camera_id": CAMERA_ID,
-                        "zone_id": zone_id,
-                        "track_id": track_id,
-                        "event": "exit",
-                        "ts": datetime.utcnow().isoformat() + "Z",
-                    }
-                    if 'dwell' in ZONES[zone_id].get('metrics', []):
-                        evt['dwell'] = current_time - start_time
+                    dwell_time = current_time - start_time
                     
-                    redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
-                    last_event_time[event_key] = current_time
-                    exited_keys.append(key)
+                    # Solo generar evento de salida si el dwell time es válido (mayor al mínimo)
+                    # Esto filtra tracks muy cortos que probablemente son falsos positivos
+                    if dwell_time >= MIN_DWELL_TIME_SECONDS:
+                        print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}') [dwell: {dwell_time:.1f}s]")
+                        evt = {
+                            "tenant_id": TENANT_ID,
+                            "camera_id": CAMERA_ID,
+                            "zone_id": zone_id,
+                            "track_id": track_id,
+                            "event": "exit",
+                            "ts": datetime.utcnow().isoformat() + "Z",
+                        }
+                        if 'dwell' in ZONES[zone_id].get('metrics', []):
+                            evt['dwell'] = dwell_time
+                        
+                        redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                        last_event_time[event_key] = current_time
+                        exited_keys.append(key)
+                    else:
+                        # Dwell time muy corto, probablemente falso positivo - simplemente remover sin evento
+                        print(f"SKIP: Track {track_id} salió de zona {zone_id} con dwell muy corto ({dwell_time:.1f}s < {MIN_DWELL_TIME_SECONDS}s) - ignorando")
+                        exited_keys.append(key)
                 # Si está en cooldown, no hacer nada (mantener el estado actual)
 
     # Remover los tracks que salieron normalmente
@@ -238,8 +285,16 @@ while True:
     for key in ghost_exit_keys:
         del prev_tracks[key]
     
-    # Limpiar eventos antiguos del diccionario de cooldown (más de 1 minuto)
-    cutoff_time = current_time - 60
+    # Limpiar tracks que ya no existen del diccionario track_first_seen
+    active_track_ids = set(current_tracks.keys())
+    tracks_to_remove = [tid for tid in track_first_seen.keys() if tid not in active_track_ids]
+    for tid in tracks_to_remove:
+        # Solo remover si el track lleva desaparecido más de 30 segundos
+        if current_time - track_first_seen[tid] > 30:
+            del track_first_seen[tid]
+    
+    # Limpiar eventos antiguos del diccionario de cooldown (más de 5 minutos)
+    cutoff_time = current_time - 300
     keys_to_remove = [k for k, v in last_event_time.items() if v < cutoff_time]
     for k in keys_to_remove:
         del last_event_time[k]
