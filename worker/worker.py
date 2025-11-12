@@ -29,7 +29,8 @@ DETECTIONS_QUEUE_KEY = os.getenv("REDIS_DETECTIONS_QUEUE", "detections_queue")
 CAMERA_ID = int(os.getenv("CAMERA_ID", 1))
 
 # --- Conexión a Redis ---
-redis_client = redis.from_url(settings.redis_url.unicode_string(), decode_responses=True)
+# Nota: decode_responses=False para manipular binarios (JPEG) sin corrupción
+redis_client = redis.from_url(settings.redis_url.unicode_string(), decode_responses=False)
 
 # --- Cargar configuración ---
 with open(CONFIG_PATH, "r") as f:
@@ -144,12 +145,21 @@ label_annotator = sv.LabelAnnotator(
 
 while True:
     # 1. Esperar bloqueantemente por un nuevo frame desde la cola de Redis
+    # Consumir frames de la cola intentando evitar acumulación/latencia
     item = redis_client.blpop(FRAMES_QUEUE_KEY, timeout=30)
     if item is None:
         continue
         
     _, data = item
     payload = json.loads(data)
+    # Si la cola se acumuló, drenar para quedarnos cerca del "en vivo"
+    try:
+        qlen = redis_client.llen(FRAMES_QUEUE_KEY)
+        if qlen and qlen > 5:
+            # Dejar solo los últimos 2 frames para ponerse al día rápidamente
+            redis_client.ltrim(FRAMES_QUEUE_KEY, -2, -1)
+    except Exception:
+        pass
 
     # Solo procesamos frames de nuestra propia cámara asignada
     if payload["camera_id"] != CAMERA_ID:

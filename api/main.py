@@ -62,27 +62,52 @@ def _snapshot():
         try:
             with get_conn() as conn:
                 with conn.cursor() as cur:
-                    # 1. Obtener la ocupación actual por zona (consulta mejorada)
+                    # 1. Ocupación robusta basada en línea de tiempo (evita reuse de track_id)
+                    #    Calcula ocupación como estado inicial + cambios netos en una ventana corta
                     cur.execute(
                         """
-                        WITH last_events AS (
-                            SELECT DISTINCT ON (zone_id, track_id)
+                        WITH time_window AS (
+                            SELECT NOW() - INTERVAL '15 minutes' AS start_ts,
+                                   NOW() AS end_ts
+                        ),
+                        starting_occupancy AS (
+                            SELECT
+                                ze.zone_id,
+                                GREATEST(0, COALESCE(SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END), 0)) AS occupancy
+                            FROM raw_vision_rogers.zone_events ze, time_window tw
+                            WHERE ze.ts < tw.start_ts
+                            GROUP BY ze.zone_id
+                        ),
+                        events_in_window AS (
+                            SELECT ze.zone_id, ze.ts, ze.event
+                            FROM raw_vision_rogers.zone_events ze, time_window tw
+                            WHERE ze.ts >= tw.start_ts AND ze.ts <= tw.end_ts
+                        ),
+                        occupancy_changes AS (
+                            SELECT
+                                zone_id,
+                                ts,
+                                SUM(CASE WHEN event = 'enter' THEN 1 ELSE -1 END)
+                                    OVER (PARTITION BY zone_id ORDER BY ts
+                                          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_change
+                            FROM events_in_window
+                        ),
+                        latest_change AS (
+                            SELECT DISTINCT ON (zone_id)
                                    zone_id,
-                                   event,
-                                   ts
-                            FROM raw_vision_rogers.zone_events
-                            ORDER BY zone_id, track_id, ts DESC
+                                   cumulative_change
+                            FROM occupancy_changes
+                            ORDER BY zone_id, ts DESC
                         )
                         SELECT
-                            le.zone_id,
-                            COUNT(*) AS occupancy
-                        FROM
-                            last_events le
-                        WHERE
-                            le.event = 'enter'
-                            AND le.ts > NOW() - INTERVAL '20 minutes'
-                        GROUP BY
-                            le.zone_id;
+                            z.zone_id,
+                            GREATEST(0,
+                                COALESCE(so.occupancy, 0) +
+                                COALESCE(lc.cumulative_change, 0)
+                            ) AS occupancy
+                        FROM (SELECT DISTINCT zone_id FROM raw_vision_rogers.zone_events) z
+                        LEFT JOIN starting_occupancy so ON z.zone_id = so.zone_id
+                        LEFT JOIN latest_change lc ON z.zone_id = lc.zone_id;
                         """
                     )
                     occupancy_rows = cur.fetchall()
