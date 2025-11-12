@@ -195,20 +195,16 @@ while True:
         # Obtener estado anterior de esta zona
         prev_tracks_in_zone = zone_track_states[zone_id]
         
-        # Track IDs actuales en la zona
+        # Track IDs actuales en la zona (solo los que realmente están en la zona ahora)
         current_track_ids_in_zone = set()
         if detections_in_zone.tracker_id is not None:
-            current_track_ids_in_zone = set(detections_in_zone.tracker_id.tolist())
+            for tid in detections_in_zone.tracker_id:
+                if tid is not None:
+                    current_track_ids_in_zone.add(int(tid))
         
         # Detectar entradas (tracks nuevos en la zona)
-        for i, tracker_id in enumerate(detections_in_zone.tracker_id):
-            if tracker_id is None:
-                continue
-                
-            tracker_id = int(tracker_id)
-            current_track_ids_in_zone.add(tracker_id)
-            
-            # Verificar si es un track nuevo en la zona
+        for tracker_id in current_track_ids_in_zone:
+            # Verificar si es un track nuevo en la zona (no estaba antes)
             if tracker_id not in prev_tracks_in_zone:
                 # Verificar edad mínima del track y cooldown
                 track_age = current_time - track_first_seen.get(tracker_id, current_time)
@@ -216,8 +212,10 @@ while True:
                 last_time = last_event_time.get(event_key, 0)
                 time_since_last_event = current_time - last_time
                 
+                # Validación adicional: asegurarnos de que no hayamos generado un evento enter recientemente
+                # Esto previene eventos duplicados si hay algún problema con el estado
                 if time_since_last_event >= EVENT_COOLDOWN_SECONDS and track_age >= MIN_TRACK_AGE_FOR_ENTER:
-                    print(f"EVENT: Track {tracker_id} ENTERED zone {zone_id} ('{zone_info['name']}') [age: {track_age:.1f}s]")
+                    print(f"EVENT: Track {tracker_id} ENTERED zone {zone_id} ('{zone_info['name']}') [age: {track_age:.1f}s, cooldown: {time_since_last_event:.1f}s]")
                     evt = {
                         "tenant_id": TENANT_ID,
                         "camera_id": CAMERA_ID,
@@ -227,8 +225,13 @@ while True:
                         "ts": datetime.utcnow().isoformat() + "Z",
                     }
                     redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                    # Marcar que este track está ahora en la zona
                     prev_tracks_in_zone[tracker_id] = current_time
                     last_event_time[event_key] = current_time
+                else:
+                    # Track muy nuevo o en cooldown, pero marcarlo como dentro para evitar eventos de salida falsos
+                    # No generar evento todavía, pero mantener el estado para evitar falsos positivos
+                    prev_tracks_in_zone[tracker_id] = current_time
         
         # Detectar salidas (tracks que estaban en la zona pero ya no están)
         tracks_to_remove = []
@@ -262,6 +265,10 @@ while True:
                         redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
                         last_event_time[event_key] = current_time
                         tracks_to_remove.append(tracker_id)
+                    else:
+                        # Track desapareció pero no ha pasado el ghost timeout
+                        # No generar evento todavía, esperar a ver si vuelve
+                        pass
                     continue
                 
                 # Track existe pero salió de la zona (salida normal)
@@ -289,13 +296,15 @@ while True:
                         print(f"SKIP: Track {tracker_id} salió de zona {zone_id} con dwell muy corto ({dwell_time:.1f}s < {MIN_DWELL_TIME_SECONDS}s)")
                         tracks_to_remove.append(tracker_id)
         
-        # Remover tracks que salieron
+        # Remover tracks que salieron (solo después de generar el evento exit)
         for tracker_id in tracks_to_remove:
             if tracker_id in prev_tracks_in_zone:
                 del prev_tracks_in_zone[tracker_id]
         
-        # Limpiar timers de tracks que ya no están en la zona
+        # Actualizar timers: solo mantener tracks que están actualmente en la zona
+        # El timer se usa para visualización, así que solo mantenemos tracks activos
         if hasattr(timer, 'tracker_id2start_time'):
+            # Solo mantener tracks que están actualmente en la zona
             active_tracker_ids = current_track_ids_in_zone
             timer.tracker_id2start_time = {
                 tid: ts for tid, ts in timer.tracker_id2start_time.items()
