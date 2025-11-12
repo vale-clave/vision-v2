@@ -7,7 +7,7 @@ tenants:
         name: "Main Area"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/102"
-        fps: 20
+        fps: 25
         zones:
           - id: 1
             name: "Interior Area"
@@ -27,7 +27,7 @@ tenants:
         name: "Drivers Area"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/202"
-        fps: 20
+        fps: 25
         zones:
           - id: 3
             name: "Drivers Queue"
@@ -40,7 +40,7 @@ tenants:
         name: "Outside Dining Area"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/702"
-        fps: 20
+        fps: 25
         zones:
           - id: 4
             name: "Dining Area"
@@ -52,7 +52,7 @@ tenants:
         name: "Break Area"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/302"
-        fps: 20
+        fps: 25
         zones:
           - id: 5
             name: "Break Area"
@@ -66,7 +66,7 @@ tenants:
         name: "Inside Dining Area"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1402"
-        fps: 20
+        fps: 25
         zones:
           - id: 6
             name: "Inside Dining Area"
@@ -77,7 +77,7 @@ tenants:
         name: "Kitchen Area 1"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1302"
-        fps: 20
+        fps: 25
         zones:
           - id: 7
             name: "Kitchen Area 1"
@@ -88,7 +88,7 @@ tenants:
         name: "Kitchen Area 2"
         location: "Buijo City Center"
         rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1602"
-        fps: 20
+        fps: 25
         zones:
           - id: 8
             name: "Kitchen Area 2"
