@@ -1,13 +1,17 @@
-import os, time, json, redis, base64, numpy as np
+import os
+import time
+import json
+import redis
+import base64
+import numpy as np
 from datetime import datetime
-from shapely.geometry import Point, Polygon
 import yaml
 from pathlib import Path
 from shared.settings import settings
 from PIL import Image
 import io
 import torch
-import cv2 # <- NUEVA IMPORTACIÓN
+import cv2
 
 # FIX: PyTorch >= 2.6 rompe la carga de modelos de ultralytics.
 # "Parcheamos" torch.load para forzar weights_only=False, ya que confiamos
@@ -16,6 +20,8 @@ original_torch_load = torch.load
 torch.load = lambda *args, **kwargs: original_torch_load(*args, weights_only=False, **kwargs)
 
 from ultralytics import YOLO
+import supervision as sv
+from utils.timers import ClockBasedTimer
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 FRAMES_QUEUE_KEY = os.getenv("REDIS_FRAMES_QUEUE", "frames_queue")
@@ -42,43 +48,88 @@ if cam_cfg is None:
 
 TENANT_ID, CAM = cam_cfg
 
-ZONES = {}
+# --- Configurar zonas usando supervision ---
+ZONES_CONFIG = {}
+zones = []
+zone_annotators = []
+timers = []
+box_annotators = []
+
 for z in CAM.get("zones", []):
-    ZONES[z["id"]] = {
-        "poly": Polygon(z["polygon"]),
+    zone_id = z["id"]
+    polygon = np.array(z["polygon"], dtype=np.int32)
+    
+    # Crear PolygonZone de supervision
+    zone = sv.PolygonZone(
+        polygon=polygon,
+        triggering_anchors=(sv.Position.CENTER,),
+    )
+    
+    # Crear annotators para visualización
+    zone_annotator = sv.PolygonZoneAnnotator(
+        zone=zone,
+        color=sv.ColorPalette.DEFAULT.by_idx(len(zones)),
+        thickness=2,
+        text_thickness=2,
+        text_scale=0.5,
+    )
+    
+    box_annotator = sv.BoxAnnotator(
+        color=sv.ColorPalette.DEFAULT.by_idx(len(zones)),
+        thickness=2,
+    )
+    
+    zones.append(zone)
+    zone_annotators.append(zone_annotator)
+    box_annotators.append(box_annotator)
+    timers.append(ClockBasedTimer())
+    
+    ZONES_CONFIG[zone_id] = {
+        "zone": zone,
+        "zone_annotator": zone_annotator,
+        "box_annotator": box_annotator,
+        "timer": timers[-1],
         "name": z["name"],
         "metrics": z.get("metrics", []),
-        "ghost_timeout_seconds": z.get("ghost_timeout_minutes", 60) * 60  # Convertir minutos a segundos
+        "ghost_timeout_seconds": z.get("ghost_timeout_minutes", 60) * 60,
+        "index": len(zones) - 1,  # Índice en las listas
     }
 
 # --- Cargar el modelo YOLO ---
-# Esta es la parte que antes causaba el conflicto. Ahora corre en un proceso separado.
 MODEL_WEIGHTS = os.getenv("YOLO_WEIGHTS", "weights/yolov8s-world.pt")
 model = YOLO(MODEL_WEIGHTS)
 print("Worker: Modelo YOLO cargado con éxito.")
 
+# --- Configurar tracker de supervision ---
+tracker = sv.ByteTrack(minimum_matching_threshold=0.8)
+
 print(f"Worker started for Camera ID: {CAMERA_ID}")
 
-# Diccionario para guardar el estado de los tracks
-prev_tracks = {}
-# Diccionario para guardar el último tiempo que se generó un evento para cada (track_id, zone_id)
-# Esto previene eventos duplicados muy seguidos (debounce)
-last_event_time = {}
-# Cooldown mínimo entre eventos del mismo track en la misma zona (en segundos)
-EVENT_COOLDOWN_SECONDS = 5.0  # Aumentado de 2.0 a 5.0 para reducir falsos positivos
-# Tiempo mínimo que un track debe estar en una zona antes de generar evento de entrada (en segundos)
+# Configuración de filtros
+TRACK_CONFIDENCE_THRESHOLD = 0.5
+TRACK_IOU_THRESHOLD = 0.7
+EVENT_COOLDOWN_SECONDS = 5.0
 MIN_TRACK_AGE_FOR_ENTER = 1.0
-# Tiempo mínimo de dwell time para considerar válido (en segundos)
 MIN_DWELL_TIME_SECONDS = 3.0
-# Configuración de tracking mejorada
-TRACK_CONFIDENCE_THRESHOLD = 0.5  # Aumentado de default para reducir falsos positivos
-TRACK_IOU_THRESHOLD = 0.7  # Aumentado para reducir ID switches
+
+# Estado de tracking por zona: {zone_id: {track_id: enter_timestamp}}
+zone_track_states = {zone_id: {} for zone_id in ZONES_CONFIG.keys()}
+
+# Diccionario para guardar el último tiempo que se generó un evento para cada (track_id, zone_id)
+last_event_time = {}
+
 # Diccionario para rastrear cuándo se detectó por primera vez cada track
 track_first_seen = {}
 
+# Label annotator para mostrar track IDs y tiempos
+label_annotator = sv.LabelAnnotator(
+    text_color=sv.Color.BLACK,
+    text_scale=0.5,
+    text_thickness=1,
+)
+
 while True:
     # 1. Esperar bloqueantemente por un nuevo frame desde la cola de Redis
-    # Usamos blpop para esperar eficientemente sin un bucle de polling constante
     item = redis_client.blpop(FRAMES_QUEUE_KEY, timeout=30)
     if item is None:
         continue
@@ -90,208 +141,229 @@ while True:
     if payload["camera_id"] != CAMERA_ID:
         continue
 
-    # 2. Decodificar el frame de base64 a una imagen, SIN USAR OPENCV
+    # 2. Decodificar el frame de base64 a una imagen
     img_bytes = base64.b64decode(payload["frame_b64"])
     img = Image.open(io.BytesIO(img_bytes))
-    frame = np.array(img) # YOLO espera un array de numpy
+    frame = np.array(img)
 
-    # 3. Inferencia y Tracking con configuración mejorada
-    # Configuración optimizada para reducir falsos positivos y mejorar tracking
-    results = model.track(
-        frame, 
+    # 3. Inferencia con YOLO (sin tracking integrado)
+    results = model(
+        frame,
         classes=[0],  # Solo personas
-        verbose=False, 
-        persist=True, 
-        tracker="bytetrack.yaml",
-        conf=TRACK_CONFIDENCE_THRESHOLD,  # Filtrar detecciones con baja confianza
-        iou=TRACK_IOU_THRESHOLD,  # IOU más alto para reducir ID switches
-        imgsz=640,  # Tamaño de imagen consistente
+        verbose=False,
+        conf=TRACK_CONFIDENCE_THRESHOLD,
+        iou=TRACK_IOU_THRESHOLD,
+        imgsz=640,
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )[0]
 
-    # 4. DIBUJAR ANOTACIONES Y ENVIAR A REDIS PARA EL STREAM DE VIDEO
-    # El método plot() de ultralytics convenientemente devuelve el frame con las cajas dibujadas.
-    annotated_frame = results.plot()
+    # 4. Convertir a detecciones de supervision
+    detections = sv.Detections.from_ultralytics(results)
+    
+    # Filtrar por confianza mínima
+    detections = detections[detections.confidence > TRACK_CONFIDENCE_THRESHOLD]
+    
+    # 5. Aplicar tracking con supervision ByteTrack
+    detections = tracker.update_with_detections(detections)
+    
+    current_time = time.time()
+    
+    # Registrar cuándo se vio por primera vez cada track
+    if detections.tracker_id is not None:
+        for tracker_id in detections.tracker_id:
+            if tracker_id is not None:
+                tracker_id_int = int(tracker_id)
+                if tracker_id_int not in track_first_seen:
+                    track_first_seen[tracker_id_int] = current_time
 
-    # DIBUJAR POLÍGONOS DE LAS ZONAS
-    for zone_id, zinfo in ZONES.items():
-        # Obtener los puntos del polígono
-        poly_coords = list(zinfo["poly"].exterior.coords)
-        poly_points = np.array(poly_coords, dtype=np.int32).reshape((-1, 1, 2))
+    # 6. Procesar cada zona
+    for zone_id, zone_info in ZONES_CONFIG.items():
+        zone = zone_info["zone"]
+        timer = zone_info["timer"]
+        zone_index = zone_info["index"]
         
-        # Dibujar el polígono con color semi-transparente
-        # Usamos diferentes colores para cada zona
-        colors = {
-            1: (0, 255, 0),    # Verde - Interior Area
-            2: (255, 0, 0),    # Azul - Register
-            3: (0, 165, 255),  # Naranja - Drivers Queue
-            4: (255, 255, 0),  # Cyan - Dining Area Outside
-            5: (255, 0, 255),  # Magenta - Break Area
-            6: (0, 255, 255),  # Amarillo - Inside Dining Area
-        }
-        color = colors.get(zone_id, (255, 255, 255))
+        # Detectar qué objetos están en la zona
+        is_in_zone = zone.trigger(detections)
+        detections_in_zone = detections[is_in_zone]
         
-        # Dibujar polígono relleno semi-transparente
-        overlay = annotated_frame.copy()
-        cv2.fillPoly(overlay, [poly_points], color)
-        cv2.addWeighted(overlay, 0.2, annotated_frame, 0.8, 0, annotated_frame)
+        # Calcular tiempo en zona usando ClockBasedTimer
+        if len(detections_in_zone) > 0:
+            time_in_zone = timer.tick(detections_in_zone)
+        else:
+            time_in_zone = np.array([])
         
-        # Dibujar el borde del polígono
-        cv2.polylines(annotated_frame, [poly_points], True, color, 2)
+        # Obtener estado anterior de esta zona
+        prev_tracks_in_zone = zone_track_states[zone_id]
         
-        # Agregar etiqueta con el nombre de la zona
-        centroid = zinfo["poly"].centroid
-        label = f"Zone {zone_id}: {zinfo['name']}"
-        cv2.putText(annotated_frame, label, (int(centroid.x), int(centroid.y)), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        # Track IDs actuales en la zona
+        current_track_ids_in_zone = set()
+        if detections_in_zone.tracker_id is not None:
+            current_track_ids_in_zone = set(detections_in_zone.tracker_id.tolist())
+        
+        # Detectar entradas (tracks nuevos en la zona)
+        for i, tracker_id in enumerate(detections_in_zone.tracker_id):
+            if tracker_id is None:
+                continue
+                
+            tracker_id = int(tracker_id)
+            current_track_ids_in_zone.add(tracker_id)
+            
+            # Verificar si es un track nuevo en la zona
+            if tracker_id not in prev_tracks_in_zone:
+                # Verificar edad mínima del track y cooldown
+                track_age = current_time - track_first_seen.get(tracker_id, current_time)
+                event_key = (tracker_id, zone_id, "enter")
+                last_time = last_event_time.get(event_key, 0)
+                time_since_last_event = current_time - last_time
+                
+                if time_since_last_event >= EVENT_COOLDOWN_SECONDS and track_age >= MIN_TRACK_AGE_FOR_ENTER:
+                    print(f"EVENT: Track {tracker_id} ENTERED zone {zone_id} ('{zone_info['name']}') [age: {track_age:.1f}s]")
+                    evt = {
+                        "tenant_id": TENANT_ID,
+                        "camera_id": CAMERA_ID,
+                        "zone_id": zone_id,
+                        "track_id": tracker_id,
+                        "event": "enter",
+                        "ts": datetime.utcnow().isoformat() + "Z",
+                    }
+                    redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                    prev_tracks_in_zone[tracker_id] = current_time
+                    last_event_time[event_key] = current_time
+        
+        # Detectar salidas (tracks que estaban en la zona pero ya no están)
+        tracks_to_remove = []
+        for tracker_id, enter_time in prev_tracks_in_zone.items():
+            if tracker_id not in current_track_ids_in_zone:
+                # El track salió de la zona o desapareció
+                event_key = (tracker_id, zone_id, "exit")
+                last_time = last_event_time.get(event_key, 0)
+                
+                # Verificar ghost timeout primero
+                time_in_zone_total = current_time - enter_time
+                ghost_timeout = zone_info["ghost_timeout_seconds"]
+                
+                # Verificar si el track desapareció completamente
+                track_still_exists = False
+                if detections.tracker_id is not None:
+                    track_still_exists = tracker_id in [int(tid) for tid in detections.tracker_id if tid is not None]
+                
+                if not track_still_exists:
+                    # Track desapareció completamente (ghost timeout)
+                    if time_in_zone_total >= ghost_timeout:
+                        print(f"GHOST TIMEOUT: Track {tracker_id} desapareció de zona {zone_id} ('{zone_info['name']}') después de {time_in_zone_total:.1f}s")
+                        evt = {
+                            "tenant_id": TENANT_ID,
+                            "camera_id": CAMERA_ID,
+                            "zone_id": zone_id,
+                            "track_id": tracker_id,
+                            "event": "exit",
+                            "ts": datetime.utcnow().isoformat() + "Z",
+                        }
+                        redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                        last_event_time[event_key] = current_time
+                        tracks_to_remove.append(tracker_id)
+                    continue
+                
+                # Track existe pero salió de la zona (salida normal)
+                if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
+                    dwell_time = time_in_zone_total
+                    
+                    if dwell_time >= MIN_DWELL_TIME_SECONDS:
+                        print(f"EVENT: Track {tracker_id} EXITED zone {zone_id} ('{zone_info['name']}') [dwell: {dwell_time:.1f}s]")
+                        evt = {
+                            "tenant_id": TENANT_ID,
+                            "camera_id": CAMERA_ID,
+                            "zone_id": zone_id,
+                            "track_id": tracker_id,
+                            "event": "exit",
+                            "ts": datetime.utcnow().isoformat() + "Z",
+                        }
+                        if 'dwell' in zone_info.get('metrics', []):
+                            evt['dwell_seconds'] = dwell_time
+                        
+                        redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                        last_event_time[event_key] = current_time
+                        tracks_to_remove.append(tracker_id)
+                    else:
+                        # Dwell time muy corto, probablemente falso positivo
+                        print(f"SKIP: Track {tracker_id} salió de zona {zone_id} con dwell muy corto ({dwell_time:.1f}s < {MIN_DWELL_TIME_SECONDS}s)")
+                        tracks_to_remove.append(tracker_id)
+        
+        # Remover tracks que salieron
+        for tracker_id in tracks_to_remove:
+            if tracker_id in prev_tracks_in_zone:
+                del prev_tracks_in_zone[tracker_id]
+        
+        # Limpiar timers de tracks que ya no están en la zona
+        if hasattr(timer, 'tracker_id2start_time'):
+            active_tracker_ids = current_track_ids_in_zone
+            timer.tracker_id2start_time = {
+                tid: ts for tid, ts in timer.tracker_id2start_time.items()
+                if tid in active_tracker_ids
+            }
 
+    # 7. Anotar frame para video stream
+    annotated_frame = frame.copy()
+    
+    # Dibujar todas las zonas y detecciones
+    for zone_id, zone_info in ZONES_CONFIG.items():
+        zone = zone_info["zone"]
+        zone_annotator = zone_info["zone_annotator"]
+        box_annotator = zone_info["box_annotator"]
+        timer = zone_info["timer"]
+        zone_index = zone_info["index"]
+        
+        # Detectar objetos en esta zona
+        is_in_zone = zone.trigger(detections)
+        detections_in_zone = detections[is_in_zone]
+        
+        # Dibujar la zona con conteo
+        annotated_frame = zone_annotator.annotate(scene=annotated_frame)
+        
+        # Dibujar bounding boxes de objetos en la zona
+        if len(detections_in_zone) > 0:
+            annotated_frame = box_annotator.annotate(
+                scene=annotated_frame,
+                detections=detections_in_zone
+            )
+            
+            # Calcular tiempos y crear labels
+            time_in_zone = timer.tick(detections_in_zone)
+            labels = []
+            if detections_in_zone.tracker_id is not None:
+                for i, tracker_id in enumerate(detections_in_zone.tracker_id):
+                    if tracker_id is None:
+                        continue
+                    time_seconds = time_in_zone[i] if i < len(time_in_zone) else 0
+                    minutes = int(time_seconds // 60)
+                    seconds = int(time_seconds % 60)
+                    labels.append(f"#{int(tracker_id)} {minutes:02d}:{seconds:02d}")
+            
+            if labels:
+                annotated_frame = label_annotator.annotate(
+                    scene=annotated_frame,
+                    detections=detections_in_zone,
+                    labels=labels
+                )
+    
     # Codificar el frame dibujado a JPEG para la transmisión
     ok, buffer = cv2.imencode('.jpg', annotated_frame)
     if ok:
         frame_bytes = buffer.tobytes()
-        # Guardamos el frame en una clave simple, sobrescribiendo la anterior.
-        # Es más eficiente para un stream de video que una lista.
         redis_client.set(f"annotated_frame_cam_{CAMERA_ID}", frame_bytes)
 
-
-    # 5. Lógica de Eventos de Entrada/Salida de Zona mejorada
-    current_tracks = {}
-    current_time = time.time()
-    
-    # Rastrear cuándo se vio por primera vez cada track
-    if results.boxes.id is not None:
-        for box in results.boxes:
-            track_id = int(box.id[0])
-            confidence = float(box.conf[0].cpu().numpy())
-            
-            # Filtrar detecciones con confianza muy baja (doble filtro)
-            if confidence < TRACK_CONFIDENCE_THRESHOLD:
-                continue
-            
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            cx = (x1 + x2) / 2
-            cy = (y1 + y2) / 2
-            current_tracks[track_id] = Point(cx, cy)
-            
-            # Registrar cuándo se vio por primera vez este track
-            if track_id not in track_first_seen:
-                track_first_seen[track_id] = current_time
-
-    # --- Lógica de Eventos de Entrada/Salida de Zona con Debounce mejorado ---
-    for track_id, point in current_tracks.items():
-        # Verificar que el track tenga suficiente edad antes de generar eventos
-        track_age = current_time - track_first_seen.get(track_id, current_time)
-        
-        for zone_id, zinfo in ZONES.items():
-            key = (track_id, zone_id)
-            event_key = (track_id, zone_id, "enter")
-            
-            if zinfo["poly"].contains(point):
-                if key not in prev_tracks:
-                    # Verificar cooldown y edad mínima del track antes de generar evento de entrada
-                    last_time = last_event_time.get(event_key, 0)
-                    time_since_last_event = current_time - last_time
-                    
-                    # Requerir que el track tenga al menos MIN_TRACK_AGE_FOR_ENTER segundos de edad
-                    # y que haya pasado el cooldown
-                    if time_since_last_event >= EVENT_COOLDOWN_SECONDS and track_age >= MIN_TRACK_AGE_FOR_ENTER:
-                        print(f"EVENT: Track {track_id} ENTERED zone {zone_id} ('{zinfo['name']}') [age: {track_age:.1f}s]")
-                        evt = {
-                            "tenant_id": TENANT_ID,
-                            "camera_id": CAMERA_ID,
-                            "zone_id": zone_id,
-                            "track_id": track_id,
-                            "event": "enter",
-                            "ts": datetime.utcnow().isoformat() + "Z",
-                        }
-                        redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
-                        prev_tracks[key] = current_time
-                        last_event_time[event_key] = current_time
-                    else:
-                        # Aún en cooldown o track muy nuevo, pero marcar como dentro para evitar eventos de salida falsos
-                        prev_tracks[key] = current_time
-                else:
-                    # Ya estaba dentro, actualizar el tiempo
-                    prev_tracks[key] = current_time
-    
-    exited_keys = []
-    ghost_exit_keys = []
-    
-    for key in prev_tracks:
-        track_id, zone_id = key
-        zone_info = ZONES[zone_id]
-        ghost_timeout = zone_info["ghost_timeout_seconds"]
-        event_key = (track_id, zone_id, "exit")
-        
-        # Verificar primero si el track desapareció completamente (ghost timeout)
-        if track_id not in current_tracks:
-            time_in_zone = current_time - prev_tracks[key]
-            if time_in_zone >= ghost_timeout:
-                # Ghost timeout: el track desapareció sin salida detectada
-                print(f"GHOST TIMEOUT: Track {track_id} desapareció de zona {zone_id} ('{zone_info['name']}') después de {time_in_zone:.1f}s (timeout: {ghost_timeout}s)")
-                evt = {
-                    "tenant_id": TENANT_ID,
-                    "camera_id": CAMERA_ID,
-                    "zone_id": zone_id,
-                    "track_id": track_id,
-                    "event": "exit",
-                    "ts": datetime.utcnow().isoformat() + "Z",
-                }
-                # No agregamos dwell porque es un ghost (no sabemos cuánto tiempo realmente estuvo)
-                redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
-                last_event_time[event_key] = current_time
-                ghost_exit_keys.append(key)
-                continue  # Saltar el procesamiento normal de salida
-        
-        # Procesamiento normal de salida (track existe pero salió de la zona)
-        if track_id in current_tracks:
-            is_outside = not ZONES[zone_id]["poly"].contains(current_tracks[track_id])
-            if is_outside:
-                # Verificar cooldown antes de generar evento de salida
-                last_time = last_event_time.get(event_key, 0)
-                if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
-                    start_time = prev_tracks[key]
-                    dwell_time = current_time - start_time
-                    
-                    # Solo generar evento de salida si el dwell time es válido (mayor al mínimo)
-                    # Esto filtra tracks muy cortos que probablemente son falsos positivos
-                    if dwell_time >= MIN_DWELL_TIME_SECONDS:
-                        print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}') [dwell: {dwell_time:.1f}s]")
-                        evt = {
-                            "tenant_id": TENANT_ID,
-                            "camera_id": CAMERA_ID,
-                            "zone_id": zone_id,
-                            "track_id": track_id,
-                            "event": "exit",
-                            "ts": datetime.utcnow().isoformat() + "Z",
-                        }
-                        if 'dwell' in ZONES[zone_id].get('metrics', []):
-                            evt['dwell'] = dwell_time
-                        
-                        redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
-                        last_event_time[event_key] = current_time
-                        exited_keys.append(key)
-                    else:
-                        # Dwell time muy corto, probablemente falso positivo - simplemente remover sin evento
-                        print(f"SKIP: Track {track_id} salió de zona {zone_id} con dwell muy corto ({dwell_time:.1f}s < {MIN_DWELL_TIME_SECONDS}s) - ignorando")
-                        exited_keys.append(key)
-                # Si está en cooldown, no hacer nada (mantener el estado actual)
-
-    # Remover los tracks que salieron normalmente
-    for key in exited_keys:
-        del prev_tracks[key]
-    
-    # Remover los tracks que fueron marcados como ghosts
-    for key in ghost_exit_keys:
-        del prev_tracks[key]
-    
+    # 8. Limpieza periódica de estado
     # Limpiar tracks que ya no existen del diccionario track_first_seen
-    active_track_ids = set(current_tracks.keys())
-    tracks_to_remove = [tid for tid in track_first_seen.keys() if tid not in active_track_ids]
-    for tid in tracks_to_remove:
-        # Solo remover si el track lleva desaparecido más de 30 segundos
-        if current_time - track_first_seen[tid] > 30:
-            del track_first_seen[tid]
+    active_track_ids = set()
+    if detections.tracker_id is not None:
+        active_track_ids = set(int(tid) for tid in detections.tracker_id if tid is not None)
+    
+    tracks_to_remove_first_seen = [
+        tid for tid in track_first_seen.keys()
+        if tid not in active_track_ids and current_time - track_first_seen[tid] > 30
+    ]
+    for tid in tracks_to_remove_first_seen:
+        del track_first_seen[tid]
     
     # Limpiar eventos antiguos del diccionario de cooldown (más de 5 minutos)
     cutoff_time = current_time - 300
