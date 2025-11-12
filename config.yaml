@@ -58,7 +58,7 @@ tenants:
             name: "Break Area"
             metrics: ["dwell", "people_inside"]
             polygon: [[216, 74], [348, 47], [383, 101], [486, 86], [592, 278], [481, 354], [237, 352], [220, 273], [215, 74]]
-            ghost_timeout_minutes: 15
+            ghost_timeout_minutes: 30
             thresholds:
               - { metric: "occupancy", level: "critical", threshold: 5 }
 

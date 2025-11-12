@@ -47,7 +47,8 @@ for z in CAM.get("zones", []):
     ZONES[z["id"]] = {
         "poly": Polygon(z["polygon"]),
         "name": z["name"],
-        "metrics": z.get("metrics", [])
+        "metrics": z.get("metrics", []),
+        "ghost_timeout_seconds": z.get("ghost_timeout_minutes", 60) * 60  # Convertir minutos a segundos
     }
 
 # --- Cargar el modelo YOLO ---
@@ -176,18 +177,20 @@ while True:
                     prev_tracks[key] = current_time
     
     exited_keys = []
+    ghost_exit_keys = []
+    
     for key in prev_tracks:
         track_id, zone_id = key
+        zone_info = ZONES[zone_id]
+        ghost_timeout = zone_info["ghost_timeout_seconds"]
         event_key = (track_id, zone_id, "exit")
         
-        is_outside = track_id not in current_tracks or not ZONES[zone_id]["poly"].contains(current_tracks[track_id])
-
-        if is_outside:
-            # Verificar cooldown antes de generar evento de salida
-            last_time = last_event_time.get(event_key, 0)
-            if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
-                start_time = prev_tracks[key]
-                print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}')")
+        # Verificar primero si el track desapareció completamente (ghost timeout)
+        if track_id not in current_tracks:
+            time_in_zone = current_time - prev_tracks[key]
+            if time_in_zone >= ghost_timeout:
+                # Ghost timeout: el track desapareció sin salida detectada
+                print(f"GHOST TIMEOUT: Track {track_id} desapareció de zona {zone_id} ('{zone_info['name']}') después de {time_in_zone:.1f}s (timeout: {ghost_timeout}s)")
                 evt = {
                     "tenant_id": TENANT_ID,
                     "camera_id": CAMERA_ID,
@@ -196,15 +199,43 @@ while True:
                     "event": "exit",
                     "ts": datetime.utcnow().isoformat() + "Z",
                 }
-                if 'dwell' in ZONES[zone_id].get('metrics', []):
-                    evt['dwell'] = current_time - start_time
-                
+                # No agregamos dwell porque es un ghost (no sabemos cuánto tiempo realmente estuvo)
                 redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
                 last_event_time[event_key] = current_time
-                exited_keys.append(key)
-            # Si está en cooldown, no hacer nada (mantener el estado actual)
+                ghost_exit_keys.append(key)
+                continue  # Saltar el procesamiento normal de salida
+        
+        # Procesamiento normal de salida (track existe pero salió de la zona)
+        if track_id in current_tracks:
+            is_outside = not ZONES[zone_id]["poly"].contains(current_tracks[track_id])
+            if is_outside:
+                # Verificar cooldown antes de generar evento de salida
+                last_time = last_event_time.get(event_key, 0)
+                if current_time - last_time >= EVENT_COOLDOWN_SECONDS:
+                    start_time = prev_tracks[key]
+                    print(f"EVENT: Track {track_id} EXITED zone {zone_id} ('{ZONES[zone_id]['name']}')")
+                    evt = {
+                        "tenant_id": TENANT_ID,
+                        "camera_id": CAMERA_ID,
+                        "zone_id": zone_id,
+                        "track_id": track_id,
+                        "event": "exit",
+                        "ts": datetime.utcnow().isoformat() + "Z",
+                    }
+                    if 'dwell' in ZONES[zone_id].get('metrics', []):
+                        evt['dwell'] = current_time - start_time
+                    
+                    redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
+                    last_event_time[event_key] = current_time
+                    exited_keys.append(key)
+                # Si está en cooldown, no hacer nada (mantener el estado actual)
 
+    # Remover los tracks que salieron normalmente
     for key in exited_keys:
+        del prev_tracks[key]
+    
+    # Remover los tracks que fueron marcados como ghosts
+    for key in ghost_exit_keys:
         del prev_tracks[key]
     
     # Limpiar eventos antiguos del diccionario de cooldown (más de 1 minuto)

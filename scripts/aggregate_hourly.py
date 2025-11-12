@@ -85,18 +85,45 @@ entries_in_hour AS (
     GROUP BY zone_id
 ),
 dwell_times AS (
-    SELECT
-        e.zone_id,
-        EXTRACT(EPOCH FROM (LEAST(x.ts, (SELECT end_ts_utc FROM time_range)) - GREATEST(e.ts, (SELECT start_ts_utc FROM time_range)))) as dwell_seconds
-    FROM
-        raw_vision_rogers.zone_events e
-    JOIN
-        raw_vision_rogers.zone_events x ON e.track_id = x.track_id AND e.zone_id = x.zone_id
-    CROSS JOIN time_range tr
-    WHERE
-        e.event = 'enter' AND x.event = 'exit'
-        AND e.ts < tr.end_ts_utc
-        AND x.ts >= tr.start_ts_utc
+    -- Emparejar cada enter con su exit correspondiente más cercano
+    WITH enters AS (
+        SELECT 
+            zone_id,
+            track_id,
+            ts as enter_ts,
+            ROW_NUMBER() OVER (PARTITION BY zone_id, track_id ORDER BY ts) as enter_seq
+        FROM raw_vision_rogers.zone_events, time_range tr
+        WHERE event = 'enter'
+        AND ts >= tr.start_ts_utc AND ts < tr.end_ts_utc
+    ),
+    exits AS (
+        SELECT 
+            zone_id,
+            track_id,
+            ts as exit_ts,
+            ROW_NUMBER() OVER (PARTITION BY zone_id, track_id ORDER BY ts) as exit_seq
+        FROM raw_vision_rogers.zone_events, time_range tr
+        WHERE event = 'exit'
+        AND ts >= tr.start_ts_utc AND ts < tr.end_ts_utc
+    ),
+    matched_pairs AS (
+        SELECT
+            e.zone_id,
+            e.track_id,
+            e.enter_ts,
+            x.exit_ts,
+            EXTRACT(EPOCH FROM (x.exit_ts - e.enter_ts)) as dwell_seconds
+        FROM enters e
+        INNER JOIN exits x ON e.zone_id = x.zone_id 
+            AND e.track_id = x.track_id 
+            AND e.enter_seq = x.exit_seq
+            AND x.exit_ts > e.enter_ts  -- El exit debe ser después del enter
+    )
+    SELECT 
+        zone_id,
+        dwell_seconds
+    FROM matched_pairs
+    WHERE dwell_seconds > 0  -- Filtrar tiempos negativos o cero
 ),
 final_metrics AS (
     SELECT
