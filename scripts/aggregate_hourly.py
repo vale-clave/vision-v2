@@ -64,22 +64,33 @@ store_zones AS (
      FROM latest_snapshot ls
      FULL OUTER JOIN changes_after_snapshot cas ON cas.zone_id = ls.zone_id
  ),
-events_in_hour AS (
-    SELECT
-        ts,
-        zone_id,
-        track_id,
-        event
-    FROM raw_vision_rogers.zone_events, time_range
-    WHERE ts >= start_ts_utc AND ts < end_ts_utc
-),
-occupancy_changes AS (
-    SELECT
-        zone_id,
-        ts,
-        SUM(CASE WHEN event = 'enter' THEN 1 ELSE -1 END) OVER (PARTITION BY zone_id ORDER BY ts) AS net_change
-    FROM events_in_hour
-),
+ events_in_hour AS (
+     SELECT
+         ts,
+         zone_id,
+         track_id,
+         event
+     FROM raw_vision_rogers.zone_events, time_range
+     WHERE ts >= start_ts_utc AND ts < end_ts_utc
+ ),
+ events_with_seed AS (
+     -- Semilla al inicio de la hora para que exista línea base aunque no haya eventos
+     SELECT sz.id AS zone_id, tr.start_ts_utc AS ts, 0 AS delta
+     FROM store_zones sz, time_range tr
+     UNION ALL
+     SELECT e.zone_id,
+            e.ts,
+            CASE WHEN e.event = 'enter' THEN 1 ELSE -1 END AS delta
+     FROM events_in_hour e
+ ),
+ occupancy_changes AS (
+     SELECT
+         zone_id,
+         ts,
+         SUM(delta) OVER (PARTITION BY zone_id ORDER BY ts
+                          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS net_change
+     FROM events_with_seed
+ ),
 occupancy_timeline AS (
     SELECT
         oc.zone_id,
