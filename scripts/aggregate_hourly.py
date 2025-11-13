@@ -189,7 +189,7 @@ final_metrics AS (
         sz.name as zone_name,
         GREATEST(0, COALESCE(om.avg_occupancy, GREATEST(0, so.occupancy), 0)) as avg_occupancy,
         GREATEST(0, COALESCE(om.max_occupancy, GREATEST(0, so.occupancy), 0)) as max_occupancy,
-        COALESCE(amp.avg_minute_peak, 0) as avg_minute_peak,
+        COALESCE(MAX(amp.avg_minute_peak), 0) as avg_minute_peak,
         COALESCE(AVG(dt.dwell_seconds), 0) as avg_dwell_seconds,
         COALESCE(e.total_entries, 0) as total_entries
     FROM store_zones sz
