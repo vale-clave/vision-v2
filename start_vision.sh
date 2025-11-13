@@ -61,7 +61,7 @@ fi
 
 CAMERA_IDS=$(yq e '.tenants[].cameras[].id' config.yaml)
 
-WINDOW_INDEX=6
+WINDOW_INDEX=7
 for CAM_ID in $CAMERA_IDS
 do
   echo "Lanzando servicios para Cámara ID: $CAM_ID"
