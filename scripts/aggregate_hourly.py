@@ -36,6 +36,12 @@ store_zones AS (
     JOIN raw_vision_rogers.cameras c ON z.camera_id = c.id
     WHERE c.store_id = %s
 ),
+-- Muestras de ocupación dentro de la hora (publicadas por el sampler)
+samples_in_hour AS (
+    SELECT s.zone_id, s.occupancy, s.ts
+    FROM raw_vision_rogers.zone_occupancy_samples s, time_range tr
+    WHERE s.ts >= tr.start_ts_utc AND s.ts < tr.end_ts_utc
+),
  latest_snapshot AS (
      -- último snapshot de ocupación antes del inicio de la hora
      SELECT DISTINCT ON (s.zone_id)
@@ -120,16 +126,13 @@ minute_series AS (
     ) gs
 ),
 per_minute_max AS (
-    -- para cada minuto y zona, tomar el máximo de la ocupación de los segmentos que se solapan
+    -- para cada minuto y zona, tomar el máximo observado en las muestras
     SELECT
-        m.minute_start,
-        t.zone_id,
-        MAX(t.current_occupancy) AS max_occupancy_minute
-    FROM minute_series m
-    JOIN t_timeline t
-      ON t.start_ts < m.minute_end
-     AND t.end_ts   > m.minute_start
-    GROUP BY m.minute_start, t.zone_id
+        DATE_TRUNC('minute', s.ts) AS minute_start,
+        s.zone_id,
+        MAX(s.occupancy) AS max_occupancy_minute
+    FROM samples_in_hour s
+    GROUP BY minute_start, s.zone_id
 ),
 avg_minute_peak AS (
     -- promedio de los picos por minuto durante la hora
@@ -140,9 +143,9 @@ avg_minute_peak AS (
 occupancy_metrics AS (
     SELECT
         zone_id,
-        SUM(current_occupancy * EXTRACT(EPOCH FROM duration)) / 3600.0 AS avg_occupancy,
-        MAX(current_occupancy) AS max_occupancy
-    FROM occupancy_timeline
+        AVG(occupancy)::float AS avg_occupancy,
+        MAX(occupancy) AS max_occupancy
+    FROM samples_in_hour
     GROUP BY zone_id
 ),
 entries_in_hour AS (
