@@ -11,6 +11,8 @@ from shared.settings import settings
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 FRAMES_QUEUE_KEY = os.getenv("REDIS_FRAMES_QUEUE", "frames_queue")
 CAMERA_ID = int(os.getenv("CAMERA_ID", 1))
+LATEST_FRAME_MODE = os.getenv("LATEST_FRAME_MODE", "1") in ("1", "true", "TRUE", "yes", "y")
+LATEST_FRAME_KEY = f"frames_latest_cam_{CAMERA_ID}"
 
 # --- Cargar configuración específica de la cámara ---
 with open(CONFIG_PATH, "r") as f:
@@ -122,15 +124,23 @@ while True:
         "frame_b64": frame_b64
     }
 
-    # Empujar a la cola de Redis (con límite de tamaño para evitar sobrecarga)
+    # Publicación en Redis
     try:
-        queue_length = redis_client.llen(FRAMES_QUEUE_KEY)
-        if queue_length > 100:  # Si hay más de 100 frames en cola, saltar este frame
-            print(f"Capture service: Cola llena ({queue_length} frames), saltando frame")
+        if LATEST_FRAME_MODE:
+            # Modo baja latencia: solo conservar el último frame
+            # Guardamos como JSON (bytes) y opcionalmente ponemos TTL corto
+            redis_client.set(LATEST_FRAME_KEY, json.dumps(payload))
+            # TTL opcional para evitar claves viejas si el productor muere
+            redis_client.expire(LATEST_FRAME_KEY, 5)
         else:
-            redis_client.rpush(FRAMES_QUEUE_KEY, json.dumps(payload))
+            # Modo cola: push con backpressure
+            queue_length = redis_client.llen(FRAMES_QUEUE_KEY)
+            if queue_length > 100:  # Si hay backlog, saltar este frame
+                print(f"Capture service: Cola llena ({queue_length} frames), saltando frame")
+            else:
+                redis_client.rpush(FRAMES_QUEUE_KEY, json.dumps(payload))
     except Exception as e:
-        print(f"Capture service: Error al enviar frame a Redis: {e}")
+        print(f"Capture service: Error al publicar frame a Redis: {e}")
     
     # Esperar el intervalo de tiempo correcto para mantener el FPS deseado
     elapsed = time.time() - current_time

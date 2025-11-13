@@ -156,10 +156,38 @@ def _snapshot():
 async def stream():
     async def gen():
         while True:
+            # 1) Intentar leer ocupación en tiempo real desde Redis (todos los workers)
+            try:
+                # Buscar claves de ocupación publicadas por los workers
+                keys = await redis_client.keys("occupancy_cam_*")
+                metrics = {}
+                latest_ts = datetime.utcnow().isoformat() + "Z"
+                for key in keys:
+                    raw = await redis_client.get(key)
+                    if raw:
+                        try:
+                            data = json.loads(raw)
+                            zones = data.get("zones", {})
+                            for zone_id_str, occ in zones.items():
+                                zone_id = int(zone_id_str)
+                                if zone_id not in metrics:
+                                    metrics[zone_id] = {}
+                                metrics[zone_id]["occupancy"] = occ
+                            latest_ts = data.get("timestamp", latest_ts)
+                        except Exception:
+                            continue
+                if metrics:
+                    payload = {"timestamp": latest_ts, "zones": metrics}
+                    yield {"event": "metrics", "data": json.dumps(payload, default=robust_json_encoder)}
+                    await asyncio.sleep(1.0)
+                    continue
+            except Exception:
+                # En caso de error en Redis, seguimos con el snapshot desde BD
+                pass
+
+            # 2) Fallback: snapshot desde BD (más costoso y de menor cadencia)
             snapshot_data = _snapshot()
-            # Convertimos manualmente el diccionario a un string JSON usando nuestro encoder robusto
-            json_payload = json.dumps(snapshot_data, default=robust_json_encoder)
-            yield {"event": "metrics", "data": json_payload}
+            yield {"event": "metrics", "data": json.dumps(snapshot_data, default=robust_json_encoder)}
             await asyncio.sleep(2)
     return EventSourceResponse(gen())
 

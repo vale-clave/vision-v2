@@ -27,6 +27,9 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 FRAMES_QUEUE_KEY = os.getenv("REDIS_FRAMES_QUEUE", "frames_queue")
 DETECTIONS_QUEUE_KEY = os.getenv("REDIS_DETECTIONS_QUEUE", "detections_queue")
 CAMERA_ID = int(os.getenv("CAMERA_ID", 1))
+LATEST_FRAME_MODE = os.getenv("LATEST_FRAME_MODE", "1") in ("1", "true", "TRUE", "yes", "y")
+LATEST_FRAME_KEY = f"frames_latest_cam_{CAMERA_ID}"
+OCCUPANCY_KEY = f"occupancy_cam_{CAMERA_ID}"
 
 # --- Conexión a Redis ---
 # Nota: decode_responses=False para manipular binarios (JPEG) sin corrupción
@@ -144,22 +147,39 @@ label_annotator = sv.LabelAnnotator(
 )
 
 while True:
-    # 1. Esperar bloqueantemente por un nuevo frame desde la cola de Redis
-    # Consumir frames de la cola intentando evitar acumulación/latencia
-    item = redis_client.blpop(FRAMES_QUEUE_KEY, timeout=30)
-    if item is None:
-        continue
-        
-    _, data = item
-    payload = json.loads(data)
-    # Si la cola se acumuló, drenar para quedarnos cerca del "en vivo"
-    try:
-        qlen = redis_client.llen(FRAMES_QUEUE_KEY)
-        if qlen and qlen > 5:
-            # Dejar solo los últimos 2 frames para ponerse al día rápidamente
-            redis_client.ltrim(FRAMES_QUEUE_KEY, -2, -1)
-    except Exception:
-        pass
+    # 1. Obtener frame de entrada (latest-frame o cola)
+    if LATEST_FRAME_MODE:
+        raw = redis_client.get(LATEST_FRAME_KEY)
+        if not raw:
+            time.sleep(0.02)
+            continue
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            time.sleep(0.01)
+            continue
+        frame_ts = payload.get("ts", 0)
+        if not hasattr(__builtins__, "_last_frame_ts"):
+            __builtins__._last_frame_ts = 0.0
+        if frame_ts <= __builtins__._last_frame_ts:
+            time.sleep(0.01)
+            continue
+        __builtins__._last_frame_ts = frame_ts
+    else:
+        # Consumir frames de la cola intentando evitar acumulación/latencia
+        item = redis_client.blpop(FRAMES_QUEUE_KEY, timeout=30)
+        if item is None:
+            continue
+        _, data = item
+        payload = json.loads(data)
+        # Si la cola se acumuló, drenar para quedarnos cerca del "en vivo"
+        try:
+            qlen = redis_client.llen(FRAMES_QUEUE_KEY)
+            if qlen and qlen > 5:
+                # Dejar solo los últimos 2 frames para ponerse al día rápidamente
+                redis_client.ltrim(FRAMES_QUEUE_KEY, -2, -1)
+        except Exception:
+            pass
 
     # Solo procesamos frames de nuestra propia cámara asignada
     if payload["camera_id"] != CAMERA_ID:
@@ -383,3 +403,16 @@ while True:
     keys_to_remove = [k for k, v in last_event_time.items() if v < cutoff_time]
     for k in keys_to_remove:
         del last_event_time[k]
+
+    # 9. Publicar ocupación actual por zona (para SSE en tiempo real)
+    try:
+        occupancy = {int(zone_id): len(state) for zone_id, state in zone_track_states.items()}
+        occ_payload = {
+            "camera_id": CAMERA_ID,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "zones": occupancy
+        }
+        redis_client.set(OCCUPANCY_KEY, json.dumps(occ_payload))
+        redis_client.expire(OCCUPANCY_KEY, 10)
+    except Exception:
+        pass
