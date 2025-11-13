@@ -1,4 +1,5 @@
 import argparse
+import os
 from datetime import datetime, timedelta
 import pytz  # Usaremos pytz para un manejo robusto de zonas horarias
 import psycopg2
@@ -35,14 +36,34 @@ store_zones AS (
     JOIN raw_vision_rogers.cameras c ON z.camera_id = c.id
     WHERE c.store_id = %s
 ),
-starting_occupancy AS (
-    SELECT
-        zone_id,
-        GREATEST(0, COALESCE(SUM(CASE WHEN event = 'enter' THEN 1 ELSE -1 END), 0)) AS occupancy
-    FROM raw_vision_rogers.zone_events, time_range
-    WHERE ts < start_ts_utc
-    GROUP BY zone_id
-),
+ latest_snapshot AS (
+     -- último snapshot de ocupación antes del inicio de la hora
+     SELECT DISTINCT ON (s.zone_id)
+         s.zone_id,
+         s.snapshot_ts,
+         s.occupancy
+     FROM raw_vision_rogers.zone_occupancy_snapshots s, time_range
+     WHERE s.snapshot_ts <= start_ts_utc
+     ORDER BY s.zone_id, s.snapshot_ts DESC
+ ),
+ changes_after_snapshot AS (
+     -- cambios desde el snapshot hasta el inicio de la hora
+     SELECT
+         ze.zone_id,
+         SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END) AS change
+     FROM raw_vision_rogers.zone_events ze
+     LEFT JOIN latest_snapshot ls ON ls.zone_id = ze.zone_id, time_range
+     WHERE ze.ts >= COALESCE(ls.snapshot_ts, TIMESTAMP 'epoch')
+       AND ze.ts <  start_ts_utc
+     GROUP BY ze.zone_id
+ ),
+ starting_occupancy AS (
+     SELECT
+         COALESCE(ls.zone_id, cas.zone_id) AS zone_id,
+         GREATEST(0, COALESCE(ls.occupancy, 0) + COALESCE(cas.change, 0)) AS occupancy
+     FROM latest_snapshot ls
+     FULL OUTER JOIN changes_after_snapshot cas ON cas.zone_id = ls.zone_id
+ ),
 events_in_hour AS (
     SELECT
         ts,
@@ -67,6 +88,43 @@ occupancy_timeline AS (
         LEAD(oc.ts, 1, (SELECT end_ts_utc FROM time_range)) OVER (PARTITION BY oc.zone_id ORDER BY oc.ts) - oc.ts AS duration
     FROM occupancy_changes oc
     LEFT JOIN starting_occupancy so ON oc.zone_id = so.zone_id
+),
+t_timeline AS (
+    -- timeline con fin explícito
+    SELECT
+        zone_id,
+        ts AS start_ts,
+        (ts + duration) AS end_ts,
+        current_occupancy
+    FROM occupancy_timeline
+),
+minute_series AS (
+    -- series de minutos dentro de la hora objetivo
+    SELECT gs AS minute_start,
+           gs + INTERVAL '1 minute' AS minute_end
+    FROM generate_series(
+        (SELECT start_ts_utc FROM time_range),
+        (SELECT end_ts_utc FROM time_range) - INTERVAL '1 minute',
+        INTERVAL '1 minute'
+    ) gs
+),
+per_minute_max AS (
+    -- para cada minuto y zona, tomar el máximo de la ocupación de los segmentos que se solapan
+    SELECT
+        m.minute_start,
+        t.zone_id,
+        MAX(t.current_occupancy) AS max_occupancy_minute
+    FROM minute_series m
+    JOIN t_timeline t
+      ON t.start_ts < m.minute_end
+     AND t.end_ts   > m.minute_start
+    GROUP BY m.minute_start, t.zone_id
+),
+avg_minute_peak AS (
+    -- promedio de los picos por minuto durante la hora
+    SELECT zone_id, AVG(max_occupancy_minute) AS avg_minute_peak
+    FROM per_minute_max
+    GROUP BY zone_id
 ),
 occupancy_metrics AS (
     SELECT
@@ -131,17 +189,19 @@ final_metrics AS (
         sz.name as zone_name,
         GREATEST(0, COALESCE(om.avg_occupancy, GREATEST(0, so.occupancy), 0)) as avg_occupancy,
         GREATEST(0, COALESCE(om.max_occupancy, GREATEST(0, so.occupancy), 0)) as max_occupancy,
+        COALESCE(amp.avg_minute_peak, 0) as avg_minute_peak,
         COALESCE(AVG(dt.dwell_seconds), 0) as avg_dwell_seconds,
         COALESCE(e.total_entries, 0) as total_entries
     FROM store_zones sz
     LEFT JOIN starting_occupancy so ON sz.id = so.zone_id
     LEFT JOIN occupancy_metrics om ON sz.id = om.zone_id
+    LEFT JOIN avg_minute_peak amp ON sz.id = amp.zone_id
     LEFT JOIN dwell_times dt ON sz.id = dt.zone_id
     LEFT JOIN entries_in_hour e ON sz.id = e.zone_id
     GROUP BY sz.id, sz.name, so.occupancy, om.avg_occupancy, om.max_occupancy, e.total_entries
 )
 INSERT INTO analytics.fact_vision_metrics_hourly
-(hour, tenant_id, store_id, zone_id, zone_name, avg_occupancy, max_occupancy, avg_dwell_seconds, total_entries)
+(hour, tenant_id, store_id, zone_id, zone_name, avg_occupancy, max_occupancy, avg_minute_peak, avg_dwell_seconds, total_entries)
 SELECT
     %s, -- El inicio de la hora en UTC
     %s, -- tenant_id
@@ -150,6 +210,7 @@ SELECT
     fm.zone_name,
     fm.avg_occupancy,
     fm.max_occupancy,
+    fm.avg_minute_peak,
     fm.avg_dwell_seconds,
     fm.total_entries
 FROM final_metrics fm
@@ -157,6 +218,7 @@ WHERE fm.zone_id IS NOT NULL
 ON CONFLICT (hour, tenant_id, store_id, zone_id) DO UPDATE SET
     avg_occupancy = EXCLUDED.avg_occupancy,
     max_occupancy = EXCLUDED.max_occupancy,
+    avg_minute_peak = EXCLUDED.avg_minute_peak,
     avg_dwell_seconds = EXCLUDED.avg_dwell_seconds,
     total_entries = EXCLUDED.total_entries;
 """
@@ -212,10 +274,55 @@ def run_aggregation_for_store(conn, store: DictCursor, target_hour_utc: datetime
         conn.rollback()
 
 
+RAW_RETENTION_HOURS = int(os.getenv("RAW_RETENTION_HOURS", "5"))
+
 def cleanup_raw_data(conn, end_of_hour_utc: datetime):
-    """Borra los datos crudos ya procesados en lotes para evitar bloqueos largos."""
-    print(f"Limpiando datos crudos anteriores a {end_of_hour_utc.isoformat()}...")
+    """Borra datos crudos manteniendo historial suficiente para starting_occupancy."""
+    cutoff = end_of_hour_utc - timedelta(hours=RAW_RETENTION_HOURS)
+    print(f"Limpiando datos crudos anteriores a {cutoff.isoformat()} (retención {RAW_RETENTION_HOURS}h)...")
     try:
+        # 1) Antes de borrar, crear snapshots en cutoff para todas las zonas
+        with conn.cursor() as cur:
+            cur.execute("""
+                WITH latest_snapshot AS (
+                    SELECT DISTINCT ON (s.zone_id)
+                        s.zone_id,
+                        s.snapshot_ts,
+                        s.occupancy
+                    FROM raw_vision_rogers.zone_occupancy_snapshots s
+                    WHERE s.snapshot_ts <= %s
+                    ORDER BY s.zone_id, s.snapshot_ts DESC
+                ),
+                changes_to_cutoff AS (
+                    SELECT
+                        ze.zone_id,
+                        SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END) AS change
+                    FROM raw_vision_rogers.zone_events ze
+                    LEFT JOIN latest_snapshot ls ON ls.zone_id = ze.zone_id
+                    WHERE ze.ts >= COALESCE(ls.snapshot_ts, TIMESTAMP 'epoch')
+                      AND ze.ts <  %s
+                    GROUP BY ze.zone_id
+                ),
+                zones AS (
+                    SELECT DISTINCT zone_id FROM raw_vision_rogers.zone_events
+                ),
+                snapshot_data AS (
+                    SELECT
+                        z.zone_id,
+                        %s::timestamptz AS snapshot_ts,
+                        GREATEST(0, COALESCE(ls.occupancy, 0) + COALESCE(c.change, 0)) AS occupancy
+                    FROM zones z
+                    LEFT JOIN latest_snapshot ls ON ls.zone_id = z.zone_id
+                    LEFT JOIN changes_to_cutoff c ON c.zone_id = z.zone_id
+                )
+                INSERT INTO raw_vision_rogers.zone_occupancy_snapshots (zone_id, snapshot_ts, occupancy)
+                SELECT zone_id, snapshot_ts, occupancy
+                FROM snapshot_data
+                ON CONFLICT (zone_id, snapshot_ts) DO UPDATE SET occupancy = EXCLUDED.occupancy;
+            """, (cutoff.isoformat(), cutoff.isoformat(), cutoff.isoformat()))
+            conn.commit()
+
+        # 2) Luego, borrar en lotes lo anterior a cutoff
         with conn.cursor() as cur:
             total_deleted = 0
             batch_size = 100000
@@ -233,7 +340,7 @@ def cleanup_raw_data(conn, end_of_hour_utc: datetime):
                         RETURNING *
                     )
                     SELECT COUNT(*) FROM deleted;
-                """, (end_of_hour_utc.isoformat(), batch_size))
+                """, (cutoff.isoformat(), batch_size))
                 
                 deleted_count = cur.fetchone()[0]
                 total_deleted += deleted_count

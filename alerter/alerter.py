@@ -7,6 +7,8 @@ import resend
 from shared.db import get_conn, init_pool
 from shared.settings import settings
 from alerter.email_templates import get_alert_html
+import json
+import redis
 
 # --- Configuración ---
 LOOP_SLEEP_SECONDS = 30 # Comprobar alertas cada 30 segundos
@@ -21,46 +23,103 @@ alert_states = {}
 
 def _get_current_metrics() -> dict:
     """
-    Calcula las métricas actuales de ocupación y dwell time.
-    Es una copia de la lógica del API para mantener consistencia.
+    Calcula las métricas actuales:
+    1) Intenta Redis (tiempo real, consistente con dashboard).
+    2) Fallback a BD si Redis no está disponible.
     """
-    metrics = {}
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # 1. Ocupación
-            cur.execute(
-                """
-                WITH last_events AS (
-                    SELECT DISTINCT ON (zone_id, track_id) zone_id, event, ts
-                    FROM raw_vision_rogers.zone_events ORDER BY zone_id, track_id, ts DESC
-                )
-                SELECT zone_id, COUNT(*) AS occupancy
-                FROM last_events
-                WHERE event = 'enter' AND ts > NOW() - INTERVAL '20 minutes'
-                GROUP BY zone_id;
-                """
-            )
-            for row in cur.fetchall():
-                zone_id, occupancy = row
-                if zone_id not in metrics: metrics[zone_id] = {}
-                metrics[zone_id]['occupancy'] = occupancy
+    metrics: dict = {}
 
-            # 2. Dwell Time
-            # Nota: El dwell time ahora se calcula durante la agregación horaria,
-            # por lo que consultamos la tabla de métricas agregadas en lugar de eventos crudos
-            cur.execute(
-                """
-                SELECT zone_id, AVG(avg_dwell_seconds) AS avg_dwell
-                FROM analytics.fact_vision_metrics_hourly
-                WHERE hour > NOW() - INTERVAL '1 hour'
-                GROUP BY zone_id;
-                """
-            )
-            for row in cur.fetchall():
-                zone_id, avg_dwell = row
-                if zone_id not in metrics: metrics[zone_id] = {}
-                if avg_dwell is not None:
-                    metrics[zone_id]['dwell'] = float(avg_dwell)
+    # 1) Redis
+    try:
+        r = redis.from_url(settings.redis_url.unicode_string())
+        keys = r.keys("occupancy_cam_*")
+        for key in keys:
+            raw = r.get(key)
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+                zones = data.get("zones", {})
+                for zone_id_str, occ in zones.items():
+                    zone_id = int(zone_id_str)
+                    metrics.setdefault(zone_id, {})["occupancy"] = int(occ)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # 2) Fallback a BD
+    if not metrics:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    WITH time_window AS (
+                        SELECT NOW() - INTERVAL '15 minutes' AS start_ts,
+                               NOW() AS end_ts
+                    ),
+                    starting_occupancy AS (
+                        SELECT
+                            ze.zone_id,
+                            GREATEST(0, COALESCE(SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END), 0)) AS occupancy
+                        FROM raw_vision_rogers.zone_events ze, time_window tw
+                        WHERE ze.ts < tw.start_ts
+                        GROUP BY ze.zone_id
+                    ),
+                    events_in_window AS (
+                        SELECT ze.zone_id, ze.ts, ze.event
+                        FROM raw_vision_rogers.zone_events ze, time_window tw
+                        WHERE ze.ts >= tw.start_ts AND ze.ts <= tw.end_ts
+                    ),
+                    occupancy_changes AS (
+                        SELECT
+                            zone_id,
+                            ts,
+                            SUM(CASE WHEN event = 'enter' THEN 1 ELSE -1 END)
+                                OVER (PARTITION BY zone_id ORDER BY ts
+                                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_change
+                        FROM events_in_window
+                    ),
+                    latest_change AS (
+                        SELECT DISTINCT ON (zone_id)
+                               zone_id,
+                               cumulative_change
+                        FROM occupancy_changes
+                        ORDER BY zone_id, ts DESC
+                    )
+                    SELECT
+                        z.zone_id,
+                        GREATEST(0,
+                            COALESCE(so.occupancy, 0) +
+                            COALESCE(lc.cumulative_change, 0)
+                        ) AS occupancy
+                    FROM (SELECT DISTINCT zone_id FROM raw_vision_rogers.zone_events) z
+                    LEFT JOIN starting_occupancy so ON z.zone_id = so.zone_id
+                    LEFT JOIN latest_change lc ON z.zone_id = lc.zone_id;
+                    """
+                )
+                for row in cur.fetchall():
+                    zone_id, occupancy = row
+                    metrics.setdefault(zone_id, {})["occupancy"] = int(occupancy)
+
+    # Dwell informativo (no se usa para disparo)
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT zone_id, AVG(avg_dwell_seconds) AS avg_dwell
+                    FROM analytics.fact_vision_metrics_hourly
+                    WHERE hour > NOW() - INTERVAL '1 hour'
+                    GROUP BY zone_id;
+                    """
+                )
+                for row in cur.fetchall():
+                    zone_id, avg_dwell = row
+                    if avg_dwell is not None:
+                        metrics.setdefault(zone_id, {})["dwell"] = float(avg_dwell)
+    except Exception:
+        pass
     return metrics
 
 def _check_alerts():
@@ -91,8 +150,8 @@ def _check_alerts():
         if current_value is None:
             continue
 
-        # Comprobar si se supera el umbral
-        is_exceeded = current_value > threshold
+        # Comprobar si se supera el umbral (inclusivo)
+        is_exceeded = current_value >= threshold
 
         # Lógica de Cooldown
         if is_exceeded and not alert_states.get(key):
