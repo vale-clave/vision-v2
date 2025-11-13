@@ -7,6 +7,7 @@ import base64
 import yaml
 from pathlib import Path
 from shared.settings import settings
+import numpy as np
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 FRAMES_QUEUE_KEY = os.getenv("REDIS_FRAMES_QUEUE", "frames_queue")
@@ -103,6 +104,29 @@ while True:
         cap = create_capture()
         continue
     
+    # Validaciones de calidad del frame (evitar frames “grises” o congelados)
+    if frame is not None:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        mean = float(gray.mean())
+        _, std = cv2.meanStdDev(gray)
+        std_val = float(std.mean()) if std is not None else 0.0
+        # Heurística: descartar frames casi uniformes (congelados/grises)
+        if std_val < 2.0:
+            # Intentar un re-read rápido
+            ok2, frame2 = cap.read()
+            if ok2 and frame2 is not None:
+                frame = frame2
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                _, std = cv2.meanStdDev(gray)
+                std_val = float(std.mean()) if std is not None else 0.0
+        if std_val < 2.0:
+            # Forzar reconexión suave si persiste
+            print(f"Capture service: Frame casi uniforme (std={std_val:.2f}, mean={mean:.1f}), reconectando...")
+            cap.release()
+            time.sleep(RECONNECT_DELAY)
+            cap = create_capture()
+            continue
+
     # Frame leído exitosamente
     consecutive_failures = 0
     last_successful_frame_time = current_time

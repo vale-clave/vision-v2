@@ -185,10 +185,20 @@ while True:
     if payload["camera_id"] != CAMERA_ID:
         continue
 
-    # 2. Decodificar el frame de base64 a una imagen
+    # 2. Decodificar el frame de base64 a una imagen (OpenCV, BGR)
     img_bytes = base64.b64decode(payload["frame_b64"])
-    img = Image.open(io.BytesIO(img_bytes))
-    frame = np.array(img)
+    np_arr = np.frombuffer(img_bytes, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        # JPEG corrupto; intentar saltar
+        time.sleep(0.005)
+        continue
+    # Validación rápida para descartar frames casi uniformes
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    _, std = cv2.meanStdDev(gray)
+    if float(std.mean()) < 1.5:
+        # Saltar frame muy uniforme
+        continue
 
     # 3. Inferencia con YOLO (sin tracking integrado)
     results = model(
