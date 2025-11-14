@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     resend_from_email: str = "Clave Alerts <noreply@alerts.tryclave.ai>"
     alert_email_to: List[str] | None = None
     google_api_key: str | None = None
+    # Segundos mínimos que una métrica debe permanecer sobre el umbral para disparar alerta
+    alert_min_exceed_seconds: int = 0
 
     @field_validator('alert_email_to', mode='before')
     @classmethod

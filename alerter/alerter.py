@@ -20,6 +20,9 @@ ALERT_EMAIL_TO = settings.alert_email_to
 # Guardará el estado de las alertas para no enviar spam.
 # Formato: {(zone_id, metric): "triggered"}
 alert_states = {}
+# Tiempo que se viene superando el umbral por zona/métrica
+# Formato: {(zone_id, metric): datetime_inicio}
+exceed_since = {}
 
 def _get_current_metrics() -> dict:
     """
@@ -128,6 +131,7 @@ def _check_alerts():
     print(f"[{datetime.now()}] Chequeando alertas...")
     
     current_metrics = _get_current_metrics()
+    min_exceed_seconds = int(getattr(settings, "alert_min_exceed_seconds", 0) or 0)
     
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -153,39 +157,51 @@ def _check_alerts():
         # Comprobar si se supera el umbral (inclusivo)
         is_exceeded = current_value >= threshold
 
-        # Lógica de Cooldown
-        if is_exceeded and not alert_states.get(key):
-            # --- ¡ALERTA! ---
-            print(f"ALERTA DISPARADA: Zona '{zone_name}', Métrica '{metric}', Valor '{current_value}' > Umbral '{threshold}'")
-            
-            # 1. Marcar estado como "triggered" para no volver a enviar
-            alert_states[key] = "triggered"
-            
-            # 2. Enviar email
-            try:
-                from_email, subject, html = get_alert_html(
-                    metric=metric,
-                    level=level,
-                    value=current_value,
-                    threshold=threshold,
-                    zone_name=zone_name,
-                    camera_name=cam_name
-                )
-                params = {
-                    "from": from_email,
-                    "to": ALERT_EMAIL_TO,
-                    "subject": subject,
-                    "html": html,
-                }
-                resend.Emails.send(params)
-                print(" -> Email de alerta enviado con éxito.")
-            except Exception as e:
-                print(f" -> ERROR al enviar email: {e}")
+        # Control de persistencia sobre el umbral + Cooldown
+        if is_exceeded:
+            now = datetime.now()
+            if key not in exceed_since:
+                exceed_since[key] = now
+            elapsed = (now - exceed_since[key]).total_seconds()
+            if elapsed >= min_exceed_seconds and not alert_states.get(key):
+                # --- ¡ALERTA! ---
+                print(f"ALERTA DISPARADA: Zona '{zone_name}', Métrica '{metric}', Valor '{current_value}' > Umbral '{threshold}' por {int(elapsed)}s (mín {min_exceed_seconds}s)")
+                
+                # 1. Marcar estado como "triggered" para no volver a enviar
+                alert_states[key] = "triggered"
+                
+                # 2. Enviar email
+                try:
+                    from_email, subject, html = get_alert_html(
+                        metric=metric,
+                        level=level,
+                        value=current_value,
+                        threshold=threshold,
+                        zone_name=zone_name,
+                        camera_name=cam_name
+                    )
+                    params = {
+                        "from": from_email,
+                        "to": ALERT_EMAIL_TO,
+                        "subject": subject,
+                        "html": html,
+                    }
+                    resend.Emails.send(params)
+                    print(" -> Email de alerta enviado con éxito.")
+                except Exception as e:
+                    print(f" -> ERROR al enviar email: {e}")
 
         elif not is_exceeded and alert_states.get(key):
             # La situación volvió a la normalidad, reseteamos el estado
             print(f"NORMALIDAD: Zona '{zone_name}', Métrica '{metric}' ha vuelto a la normalidad.")
             alert_states.pop(key)
+            # También reiniciamos la ventana de persistencia
+            if key in exceed_since:
+                exceed_since.pop(key)
+        elif not is_exceeded:
+            # No superado: reiniciar contador de persistencia si existía
+            if key in exceed_since:
+                exceed_since.pop(key)
 
 
 if __name__ == "__main__":
