@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     # Segundos mínimos que una métrica debe permanecer sobre el umbral para disparar alerta
     alert_min_exceed_seconds: int = 0
+    # Modo voto: contar cuántas veces se superó el umbral dentro de una ventana W
+    alert_vote_window_seconds: int = 0  # 0 = desactivado
+    alert_vote_min_hits: int = 0        # hits requeridos dentro de la ventana
 
     @field_validator('alert_email_to', mode='before')
     @classmethod

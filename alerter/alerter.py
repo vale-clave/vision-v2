@@ -9,6 +9,7 @@ from shared.settings import settings
 from alerter.email_templates import get_alert_html
 import json
 import redis
+from collections import deque
 
 # --- Configuración ---
 LOOP_SLEEP_SECONDS = 30 # Comprobar alertas cada 30 segundos
@@ -23,6 +24,9 @@ alert_states = {}
 # Tiempo que se viene superando el umbral por zona/métrica
 # Formato: {(zone_id, metric): datetime_inicio}
 exceed_since = {}
+# Historial de hits por ventana (modo voto)
+# Formato: {(zone_id, metric): deque[timestamps]}
+exceed_hits: dict[tuple[int, str], deque] = {}
 
 def _get_current_metrics() -> dict:
     """
@@ -132,6 +136,8 @@ def _check_alerts():
     
     current_metrics = _get_current_metrics()
     min_exceed_seconds = int(getattr(settings, "alert_min_exceed_seconds", 0) or 0)
+    vote_window_seconds = int(getattr(settings, "alert_vote_window_seconds", 0) or 0)
+    vote_min_hits = int(getattr(settings, "alert_vote_min_hits", 0) or 0)
     
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -157,9 +163,19 @@ def _check_alerts():
         # Comprobar si se supera el umbral (inclusivo)
         is_exceeded = current_value >= threshold
 
-        # Control de persistencia sobre el umbral + Cooldown
-        if is_exceeded:
-            now = datetime.now()
+        # Registrar hits para modo voto
+        now = datetime.now()
+        if vote_window_seconds > 0 and vote_min_hits > 0:
+            dq = exceed_hits.setdefault(key, deque())
+            # Mantener solo timestamps dentro de la ventana
+            cutoff = now.timestamp() - vote_window_seconds
+            while dq and dq[0] < cutoff:
+                dq.popleft()
+            if is_exceeded:
+                dq.append(now.timestamp())
+
+        # Control de persistencia sobre el umbral + Cooldown (modo tiempo continuo)
+        if is_exceeded and min_exceed_seconds > 0:
             if key not in exceed_since:
                 exceed_since[key] = now
             elapsed = (now - exceed_since[key]).total_seconds()
@@ -191,6 +207,37 @@ def _check_alerts():
                 except Exception as e:
                     print(f" -> ERROR al enviar email: {e}")
 
+        # Control de mayoría por ventana (modo voto)
+        elif (vote_window_seconds > 0 and vote_min_hits > 0
+              and not alert_states.get(key)):
+            dq = exceed_hits.setdefault(key, deque())
+            # Purga por si no se purgó arriba
+            cutoff = now.timestamp() - vote_window_seconds
+            while dq and dq[0] < cutoff:
+                dq.popleft()
+            if len(dq) >= vote_min_hits:
+                print(f"ALERTA DISPARADA (voto): Zona '{zone_name}', Métrica '{metric}', hits={len(dq)}/{vote_min_hits} en {vote_window_seconds}s")
+                alert_states[key] = "triggered"
+                try:
+                    from_email, subject, html = get_alert_html(
+                        metric=metric,
+                        level=level,
+                        value=current_value,
+                        threshold=threshold,
+                        zone_name=zone_name,
+                        camera_name=cam_name
+                    )
+                    params = {
+                        "from": from_email,
+                        "to": ALERT_EMAIL_TO,
+                        "subject": subject,
+                        "html": html,
+                    }
+                    resend.Emails.send(params)
+                    print(" -> Email de alerta enviado con éxito.")
+                except Exception as e:
+                    print(f" -> ERROR al enviar email: {e}")
+
         elif not is_exceeded and alert_states.get(key):
             # La situación volvió a la normalidad, reseteamos el estado
             print(f"NORMALIDAD: Zona '{zone_name}', Métrica '{metric}' ha vuelto a la normalidad.")
@@ -198,6 +245,14 @@ def _check_alerts():
             # También reiniciamos la ventana de persistencia
             if key in exceed_since:
                 exceed_since.pop(key)
+            # Si no hay hits recientes, limpiar deque
+            if key in exceed_hits:
+                dq = exceed_hits[key]
+                cutoff = now.timestamp() - vote_window_seconds if vote_window_seconds > 0 else now.timestamp()
+                while dq and dq[0] < cutoff:
+                    dq.popleft()
+                if not dq:
+                    exceed_hits.pop(key)
         elif not is_exceeded:
             # No superado: reiniciar contador de persistencia si existía
             if key in exceed_since:
