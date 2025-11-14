@@ -28,7 +28,6 @@ def get_alert_html(metric: str, level: str, value: float, threshold: float, zone
         subject = f"{color['emoji']} Alerta de Ocupación: {int(value)} personas en {zone_name}"
         title = "Alta Ocupación Detectada"
         message = f"El sistema ha detectado <strong>{int(value)} personas</strong> en la zona <strong>'{zone_name}'</strong> (Cámara: {camera_name}), superando el umbral de {int(threshold)}."
-        recommendation = "💡 <strong>Recomendación:</strong> Monitorear la situación y considerar gestionar el flujo de personas si persiste."
             
     elif metric == 'dwell':
         minutes = int(value // 60)
@@ -39,7 +38,6 @@ def get_alert_html(metric: str, level: str, value: float, threshold: float, zone
         subject = f"{color['emoji']} Alerta de Permanencia: {minutes}m {seconds}s en {zone_name}"
         title = "Tiempo de Permanencia Extendido"
         message = f"Se ha detectado un tiempo de permanencia promedio de <strong>{minutes}m y {seconds}s</strong> en la zona <strong>'{zone_name}'</strong> (Cámara: {camera_name}), superando el umbral de {thr_minutes}m y {thr_seconds}s."
-        recommendation = "💡 <strong>Recomendación:</strong> Verificar si algún cliente necesita asistencia o si hay un problema en el área."
 
     else:
         subject = f"{color['emoji']} Alerta del Sistema"
@@ -82,11 +80,6 @@ def get_alert_html(metric: str, level: str, value: float, threshold: float, zone
                             <p style="color: #374151; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
                                 {message}
                             </p>
-                            <div style="background-color: #F9FAFB; border-radius: 8px; padding: 16px; margin: 20px 0;">
-                                <p style="color: #6B7280; font-size: 14px; line-height: 1.5; margin: 0;">
-                                    {recommendation}
-                                </p>
-                            </div>
                         </td>
                     </tr>
                     <tr>
