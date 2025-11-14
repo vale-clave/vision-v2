@@ -27,6 +27,9 @@ exceed_since = {}
 # Historial de hits por ventana (modo voto)
 # Formato: {(zone_id, metric): deque[timestamps]}
 exceed_hits: dict[tuple[int, str], deque] = {}
+# Tiempo que se viene manteniendo por debajo del umbral (para normalidad)
+# Formato: {(zone_id, metric): datetime_inicio_bajo}
+below_since: dict[tuple[int, str], datetime] = {}
 
 def _get_current_metrics() -> dict:
     """
@@ -138,6 +141,7 @@ def _check_alerts():
     min_exceed_seconds = int(getattr(settings, "alert_min_exceed_seconds", 0) or 0)
     vote_window_seconds = int(getattr(settings, "alert_vote_window_seconds", 0) or 0)
     vote_min_hits = int(getattr(settings, "alert_vote_min_hits", 0) or 0)
+    min_below_seconds = int(getattr(settings, "alert_min_below_seconds", 0) or 0)
     
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -173,6 +177,9 @@ def _check_alerts():
                 dq.popleft()
             if is_exceeded:
                 dq.append(now.timestamp())
+            else:
+                # No contamos hit; solo purga arriba
+                pass
 
         # Control de persistencia sobre el umbral + Cooldown (modo tiempo continuo)
         if is_exceeded and min_exceed_seconds > 0:
@@ -206,6 +213,9 @@ def _check_alerts():
                     print(" -> Email de alerta enviado con éxito.")
                 except Exception as e:
                     print(f" -> ERROR al enviar email: {e}")
+            # Al estar sobre umbral, reseteamos contador de bajo-umbral
+            if key in below_since:
+                below_since.pop(key)
 
         # Control de mayoría por ventana (modo voto)
         elif (vote_window_seconds > 0 and vote_min_hits > 0
@@ -237,26 +247,41 @@ def _check_alerts():
                     print(" -> Email de alerta enviado con éxito.")
                 except Exception as e:
                     print(f" -> ERROR al enviar email: {e}")
+            # Si no superó por voto, y está bajo umbral, acumulamos tiempo bajo
+            if not is_exceeded and alert_states.get(key):
+                if key not in below_since:
+                    below_since[key] = now
 
         elif not is_exceeded and alert_states.get(key):
-            # La situación volvió a la normalidad, reseteamos el estado
-            print(f"NORMALIDAD: Zona '{zone_name}', Métrica '{metric}' ha vuelto a la normalidad.")
-            alert_states.pop(key)
-            # También reiniciamos la ventana de persistencia
-            if key in exceed_since:
-                exceed_since.pop(key)
-            # Si no hay hits recientes, limpiar deque
-            if key in exceed_hits:
-                dq = exceed_hits[key]
-                cutoff = now.timestamp() - vote_window_seconds if vote_window_seconds > 0 else now.timestamp()
-                while dq and dq[0] < cutoff:
-                    dq.popleft()
-                if not dq:
-                    exceed_hits.pop(key)
+            # Está por debajo del umbral mientras hay alerta activa: aplicar histeresis
+            if key not in below_since:
+                below_since[key] = now
+            elapsed_below = (now - below_since[key]).total_seconds()
+            if elapsed_below >= min_below_seconds:
+                print(f"NORMALIDAD: Zona '{zone_name}', Métrica '{metric}' bajo umbral por {int(elapsed_below)}s (mín {min_below_seconds}s).")
+                alert_states.pop(key)
+                # Reiniciar estados
+                if key in exceed_since:
+                    exceed_since.pop(key)
+                if key in below_since:
+                    below_since.pop(key)
+                # Limpiar hits si la ventana quedó vacía
+                if key in exceed_hits:
+                    dq = exceed_hits[key]
+                    cutoff = now.timestamp() - vote_window_seconds if vote_window_seconds > 0 else now.timestamp()
+                    while dq and dq[0] < cutoff:
+                        dq.popleft()
+                    if not dq:
+                        exceed_hits.pop(key)
         elif not is_exceeded:
             # No superado: reiniciar contador de persistencia si existía
             if key in exceed_since:
                 exceed_since.pop(key)
+            # Si no hay alerta activa, reiniciar también el contador de bajo-umbral
+            if key in below_since and not alert_states.get(key):
+                elapsed_below = (now - below_since[key]).total_seconds()
+                # Mantener below_since para medir histeresis si se activa alerta? Solo necesario con alerta activa.
+                below_since.pop(key)
 
 
 if __name__ == "__main__":

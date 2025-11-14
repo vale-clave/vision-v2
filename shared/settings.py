@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Modo voto: contar cuántas veces se superó el umbral dentro de una ventana W
     alert_vote_window_seconds: int = 0  # 0 = desactivado
     alert_vote_min_hits: int = 0        # hits requeridos dentro de la ventana
+    # Segundos mínimos por debajo del umbral para considerar "normalidad" y liberar el latch
+    alert_min_below_seconds: int = 0
 
     @field_validator('alert_email_to', mode='before')
     @classmethod
