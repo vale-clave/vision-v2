@@ -219,14 +219,15 @@ def _check_alerts():
 
         # Control de mayoría por ventana (modo voto)
         elif (vote_window_seconds > 0 and vote_min_hits > 0
-              and not alert_states.get(key)):
+              and not alert_states.get(key)
+              and is_exceeded):
             dq = exceed_hits.setdefault(key, deque())
             # Purga por si no se purgó arriba
             cutoff = now.timestamp() - vote_window_seconds
             while dq and dq[0] < cutoff:
                 dq.popleft()
             if len(dq) >= vote_min_hits:
-                print(f"ALERTA DISPARADA (voto): Zona '{zone_name}', Métrica '{metric}', hits={len(dq)}/{vote_min_hits} en {vote_window_seconds}s")
+                print(f"ALERTA DISPARADA (voto): Zona '{zone_name}', Métrica '{metric}', valor={current_value} >= {threshold}, hits={len(dq)}/{vote_min_hits} en {vote_window_seconds}s")
                 alert_states[key] = "triggered"
                 try:
                     from_email, subject, html = get_alert_html(
