@@ -1,5 +1,6 @@
 """Templates HTML para emails de alertas, adaptado para V2"""
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from shared.settings import settings
 
 RESEND_FROM_EMAIL = settings.resend_from_email
@@ -19,7 +20,8 @@ def get_alert_html(metric: str, level: str, value: float, threshold: float, zone
     }
     
     color = colors.get(level, colors['warning'])
-    timestamp = datetime.now().strftime('%H:%M:%S - %d/%m/%Y')
+    # Hora local de Ecuador (America/Guayaquil)
+    timestamp = datetime.now(ZoneInfo("America/Guayaquil")).strftime('%H:%M:%S - %d/%m/%Y (Ecuador)')
     
     # Templates by metric type
     if metric == 'occupancy':
