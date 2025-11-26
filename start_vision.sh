@@ -5,6 +5,11 @@
 
 SESSION_NAME="vision"
 
+# Usuario y host del VPS que tiene la IP fija (ajusta si usas otro usuario)
+VPS_USER="root"
+VPS_HOST="64.225.10.55"
+SSH_KEY_PATH="$HOME/.ssh/id_vision_vps"
+
 # --- Paso 1: Limpiar sesiones anteriores ---
 echo "Limpiando sesiones de tmux anteriores..."
 tmux kill-session -t $SESSION_NAME 2>/dev/null || true
@@ -50,6 +55,26 @@ tmux send-keys -t $SESSION_NAME:6 "PYTHONPATH=. python3 scripts/occupancy_sample
 # --- Paso 5: Lanzar dinámicamente los workers y captures ---
 echo "Lanzando workers y captures dinámicamente desde config.yaml..."
 
+# --- Preparar túnel SOCKS5 hacia el VPS (IP estática) ---
+echo "Verificando/levantando túnel SSH SOCKS5 hacia $VPS_HOST..."
+if ! nc -z 127.0.0.1 1080 2>/dev/null; then
+  if [ ! -f "$SSH_KEY_PATH" ]; then
+    echo "ERROR: No se encontró la llave SSH en $SSH_KEY_PATH"
+    echo "Copia tu llave privada para el VPS a $SSH_KEY_PATH y dale permisos 600."
+    exit 1
+  fi
+
+  ssh -o StrictHostKeyChecking=no \
+      -i "$SSH_KEY_PATH" \
+      -D 1080 -f -N "$VPS_USER@$VPS_HOST" || {
+    echo "Error creando túnel SSH al VPS $VPS_HOST"
+    exit 1
+  }
+  echo "Túnel SOCKS5 levantado en 127.0.0.1:1080 hacia $VPS_HOST"
+else
+  echo "Túnel SOCKS5 ya parece estar escuchando en 127.0.0.1:1080, se reutiliza."
+fi
+
 # Extraer los IDs de las cámaras del config.yaml usando yq
 # yq es un procesador de YAML para la línea de comandos, similar a jq para JSON.
 # Lo instalaremos si no existe.
@@ -68,7 +93,8 @@ do
   
   # Capture
   tmux new-window -t $SESSION_NAME:$WINDOW_INDEX -n "Capture-$CAM_ID"
-  tmux send-keys -t $SESSION_NAME:$WINDOW_INDEX "CAMERA_ID=$CAM_ID PYTHONPATH=. python3 capture/capture.py" C-m
+  tmux send-keys -t $SESSION_NAME:$WINDOW_INDEX \
+    "CAMERA_ID=$CAM_ID PYTHONPATH=. PROXYCHAINS_CONF=\$PWD/proxychains.conf proxychains4 python3 capture/capture.py" C-m
   let WINDOW_INDEX++
 
   # Worker

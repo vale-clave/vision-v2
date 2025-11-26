@@ -1,97 +1,16 @@
 tenants:
   - id: 1
-    name: "Rogers"
+    name: "Socado"
     store_id: "54f59d0a-be6e-411d-8f9e-1ac505fea992"
     cameras:
       - id: 1
-        name: "Main Area"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/102"
+        name: "Cam 1"
+        location: "Sucursal X"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"
         fps: 25
         zones:
           - id: 1
-            name: "Interior Area"
+            name: "Zona completa"
             metrics: ["people_inside"]
-            polygon: [[84, 163], [307, 96], [286, 77], [348, 68], [341, 27], [418, 14], [560, 109], [577, 226], [498, 353], [148, 355], [83, 165]]
-            ghost_timeout_minutes: 90
-            thresholds:
-              - { metric: "occupancy", level: "critical", threshold: 7 }
-          - id: 2
-            name: "Register"
-            metrics: ["dwell", "people_inside"]
-            polygon: [[107, 156], [144, 249], [230, 215], [215, 121], [107, 151]]
-            ghost_timeout_minutes: 5
-            thresholds:
-              - { metric: "occupancy", level: "critical", threshold: 4 }
-      - id: 2
-        name: "Drivers Area"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/202"
-        fps: 25
-        zones:
-          - id: 3
-            name: "Drivers Queue"
-            metrics: ["people_inside"]
-            polygon: [[127, 328], [262, 152], [394, 95], [474, 194], [526, 229], [529, 354], [150, 355], [128, 331]]
-            ghost_timeout_minutes: 10
-            thresholds:
-              - { metric: "occupancy", level: "critical", threshold: 3 }
-      - id: 4
-        name: "Outside Dining Area"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/702"
-        fps: 25
-        zones:
-          - id: 4
-            name: "Dining Area"
-            metrics: ["people_inside"]
-            polygon: [[93, 226], [404, 44], [563, 60], [493, 352], [130, 349], [92, 229]]
-            ghost_timeout_minutes: 90
-    
-      - id: 5
-        name: "Break Area"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/302"
-        fps: 25
-        zones:
-          - id: 5
-            name: "Break Area"
-            metrics: ["dwell", "people_inside"]
-            polygon: [[216, 74], [348, 47], [383, 101], [486, 86], [592, 278], [481, 354], [237, 352], [220, 273], [215, 74]]
+            polygon: [[0, 0], [1280, 0], [1280, 720], [0, 720]]
             ghost_timeout_minutes: 30
-            thresholds:
-              - { metric: "occupancy", level: "critical", threshold: 5 }
-
-      - id: 6
-        name: "Inside Dining Area"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1402"
-        fps: 25
-        zones:
-          - id: 6
-            name: "Inside Dining Area"
-            metrics: ["people_inside"]
-            polygon: [[55, 184], [310, 60], [355, 38], [507, 62], [450, 355], [140, 353], [55, 185]]
-            ghost_timeout_minutes: 90
-      - id: 7
-        name: "Kitchen Area 1"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1302"
-        fps: 25
-        zones:
-          - id: 7
-            name: "Kitchen Area 1"
-            metrics: ["people_inside"]
-            polygon: [[332, 15], [194, 40], [194, 311], [321, 296], [354, 352], [626, 343], [507, 126], [404, 131], [333, 16]]
-            ghost_timeout_minutes: 5
-      - id: 8
-        name: "Kitchen Area 2"
-        location: "Buijo City Center"
-        rtsp_url: "rtsp://admin:abcd1234@200.0.73.70/Streaming/Channels/1602"
-        fps: 25
-        zones:
-          - id: 8
-            name: "Kitchen Area 2"
-            metrics: ["people_inside"]
-            polygon: [[181, 3], [48, 355], [515, 354], [547, 303], [379, 2], [180, 2]]
-            ghost_timeout_minutes: 5
