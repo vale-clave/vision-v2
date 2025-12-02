@@ -48,7 +48,10 @@ print(f"Capture service started for Camera ID: {CAMERA_ID} at {FPS} FPS")
 
 def create_capture():
     """Crea una nueva captura de video con configuración optimizada"""
-    cap = cv2.VideoCapture(RTSP_URL)
+    # Usamos backend FFMPEG para poder controlar el transporte (TCP) vía
+    # OPENCV_FFMPEG_CAPTURE_OPTIONS, que es necesario cuando el stream viaja
+    # a través de un túnel SOCKS5 (solo TCP).
+    cap = cv2.VideoCapture(RTSP_URL, cv2.CAP_FFMPEG)
     if cap.isOpened():
         # Configurar buffer size para reducir latencia
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)

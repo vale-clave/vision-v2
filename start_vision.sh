@@ -81,7 +81,7 @@ fi
 if ! command -v yq &> /dev/null
 then
     echo "yq no encontrado. Instalando yq..."
-    sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+    wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && chmod +x /usr/bin/yq
 fi
 
 CAMERA_IDS=$(yq e '.tenants[].cameras[].id' config.yaml)
@@ -94,7 +94,7 @@ do
   # Capture
   tmux new-window -t $SESSION_NAME:$WINDOW_INDEX -n "Capture-$CAM_ID"
   tmux send-keys -t $SESSION_NAME:$WINDOW_INDEX \
-    "CAMERA_ID=$CAM_ID PYTHONPATH=. PROXYCHAINS_CONF=\$PWD/proxychains.conf proxychains4 python3 capture/capture.py" C-m
+    "CAMERA_ID=$CAM_ID PYTHONPATH=. OPENCV_FFMPEG_CAPTURE_OPTIONS='rtsp_transport;tcp' PROXYCHAINS_CONF=\$PWD/proxychains.conf proxychains4 python3 capture/capture.py" C-m
   let WINDOW_INDEX++
 
   # Worker

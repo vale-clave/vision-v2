@@ -6,7 +6,7 @@ tenants:
       - id: 1
         name: "Cam 1"
         location: "Sucursal X"
-        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102?tcp"        
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
         fps: 25
         zones:
           - id: 1
