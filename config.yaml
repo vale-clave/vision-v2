@@ -34,7 +34,7 @@ tenants:
           - id: 3
             name: "Mesas Escaleras"
             metrics: ["people_inside", "dwell"]
-            polygon: [[300, 124], [294, 217], [442, 346], [515, 350], [599, 288], [589, 197], [301, 123]]
+            polygon: [[274, 115], [215, 168], [412, 340], [537, 349], [607, 266], [568, 190], [273, 114]]
             ghost_timeout_minutes: 30
       - id: 4
         name: "Mesas Escaleras Izquierda"
