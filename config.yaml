@@ -6,7 +6,7 @@ tenants:
       - id: 1
         name: "Caja"
         location: "Cerro Verde"
-        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/702"        
         fps: 25
         zones:
           - id: 1
@@ -17,7 +17,7 @@ tenants:
       - id: 2
         name: "Mesas Laterales"
         location: "Cerro Verde"
-        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/202"        
         fps: 25
         zones:
           - id: 1
@@ -28,7 +28,7 @@ tenants:
       - id: 3
         name: "Mesas Escaleras"
         location: "Cerro Verde"
-        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/402"        
         fps: 25
         zones:
           - id: 1
@@ -40,7 +40,7 @@ tenants:
       - id: 4
         name: "Mesas Escaleras Izquierda"
         location: "Cerro Verde"
-        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/602"        
         fps: 25
         zones:
           - id: 1
