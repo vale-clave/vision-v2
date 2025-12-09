@@ -1,16 +1,51 @@
 tenants:
   - id: 1
     name: "Socado"
-    store_id: "54f59d0a-be6e-411d-8f9e-1ac505fea992"
+    store_id: "142dfbd2-909a-42a5-8c9e-5bccd3a97e58"
     cameras:
       - id: 1
-        name: "Cam 1"
-        location: "Sucursal X"
+        name: "Caja"
+        location: "Cerro Verde"
         rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
         fps: 25
         zones:
           - id: 1
-            name: "Zona completa"
-            metrics: ["people_inside"]
-            polygon: [[0, 0], [1280, 0], [1280, 720], [0, 720]]
+            name: "Caja"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[3, 6], [242, 5], [286, 356], [12, 349], [3, 7]]
             ghost_timeout_minutes: 30
+      - id: 2
+        name: "Mesas Laterales"
+        location: "Cerro Verde"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        fps: 25
+        zones:
+          - id: 1
+            name: "Mesas Laterales"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[104, 255], [462, 29], [623, 253], [559, 305], [154, 352], [104, 257]]
+            ghost_timeout_minutes: 30
+      - id: 3
+        name: "Mesas Escaleras"
+        location: "Cerro Verde"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        fps: 25
+        zones:
+          - id: 1
+            name: "Mesas Escaleras"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[300, 124], [294, 217], [442, 346], [515, 350], [599, 288], [589, 197], [301, 123]]
+            ghost_timeout_minutes: 30
+
+      - id: 4
+        name: "Mesas Escaleras Izquierda"
+        location: "Cerro Verde"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/102"        
+        fps: 25
+        zones:
+          - id: 1
+            name: "Mesas Escaleras Izquierda"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[324, 54], [399, 88], [198, 349], [44, 333], [17, 229], [318, 51]]
+            ghost_timeout_minutes: 30
+     

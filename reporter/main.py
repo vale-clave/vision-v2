@@ -26,8 +26,8 @@ def fetch_weekly_data(conn, start_date, end_date):
             fm.avg_dwell_seconds,
             fm.total_entries
         FROM analytics.fact_vision_metrics_hourly fm
-        JOIN raw_vision_rogers.zones z ON fm.zone_id = z.id
-        JOIN raw_vision_rogers.cameras c ON z.camera_id = c.id
+        JOIN raw_vision_socado.zones z ON fm.zone_id = z.id
+        JOIN raw_vision_socado.cameras c ON z.camera_id = c.id
         WHERE fm.hour >= %s AND fm.hour < %s
         ORDER BY fm.zone_name, fm.hour;
     """

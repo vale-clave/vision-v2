@@ -54,7 +54,7 @@ def main():
                 with get_conn() as conn:
                     with conn.cursor() as cur:
                         execute_values(cur, """
-                            INSERT INTO raw_vision_rogers.zone_occupancy_samples
+                            INSERT INTO raw_vision_socado.zone_occupancy_samples
                                 (ts, tenant_id, store_id, camera_id, zone_id, occupancy)
                             VALUES %s
                             ON CONFLICT (camera_id, zone_id, ts) DO UPDATE

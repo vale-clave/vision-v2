@@ -110,7 +110,7 @@ def _flush_batch(batch: List[Tuple]):
                         cur.execute(
                             """
                             SELECT camera_id, zone_id, track_id, event, ts
-                            FROM raw_vision_rogers.zone_events
+                            FROM raw_vision_socado.zone_events
                             WHERE ts >= %s AND ts <= %s
                             """,
                             (check_start, check_end)
@@ -146,7 +146,7 @@ def _flush_batch(batch: List[Tuple]):
                     
                     execute_values(cur,
                         """
-                        INSERT INTO raw_vision_rogers.zone_events (camera_id, zone_id, track_id, event, ts)
+                        INSERT INTO raw_vision_socado.zone_events (camera_id, zone_id, track_id, event, ts)
                         VALUES %s
                         """,
                         filtered_batch

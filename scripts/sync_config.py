@@ -4,7 +4,7 @@ from psycopg2.extras import DictCursor
 from shared.db import get_conn
 
 CONFIG_FILE = 'config.yaml'
-TENANT_SCHEMA = 'raw_vision_rogers'
+TENANT_SCHEMA = 'raw_vision_socado'
 
 def sync_config(conn, config):
     """

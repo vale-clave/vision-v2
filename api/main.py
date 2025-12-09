@@ -74,13 +74,13 @@ def _snapshot():
                             SELECT
                                 ze.zone_id,
                                 GREATEST(0, COALESCE(SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END), 0)) AS occupancy
-                            FROM raw_vision_rogers.zone_events ze, time_window tw
+                            FROM raw_vision_socado.zone_events ze, time_window tw
                             WHERE ze.ts < tw.start_ts
                             GROUP BY ze.zone_id
                         ),
                         events_in_window AS (
                             SELECT ze.zone_id, ze.ts, ze.event
-                            FROM raw_vision_rogers.zone_events ze, time_window tw
+                            FROM raw_vision_socado.zone_events ze, time_window tw
                             WHERE ze.ts >= tw.start_ts AND ze.ts <= tw.end_ts
                         ),
                         occupancy_changes AS (
@@ -105,7 +105,7 @@ def _snapshot():
                                 COALESCE(so.occupancy, 0) +
                                 COALESCE(lc.cumulative_change, 0)
                             ) AS occupancy
-                        FROM (SELECT DISTINCT zone_id FROM raw_vision_rogers.zone_events) z
+                        FROM (SELECT DISTINCT zone_id FROM raw_vision_socado.zone_events) z
                         LEFT JOIN starting_occupancy so ON z.zone_id = so.zone_id
                         LEFT JOIN latest_change lc ON z.zone_id = lc.zone_id;
                         """

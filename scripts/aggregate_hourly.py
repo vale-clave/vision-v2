@@ -22,7 +22,7 @@ WHERE
 """
 
 # Consulta de agregación rediseñada para el nuevo esquema
-# Nota: La tabla 'zones' ahora se une desde el esquema raw_vision_rogers
+# Nota: La tabla 'zones' ahora se une desde el esquema raw_vision_socado
 AGGREGATION_QUERY = """
 WITH time_range AS (
     SELECT
@@ -32,14 +32,14 @@ WITH time_range AS (
 -- Obtener todas las zonas para la tienda actual
 store_zones AS (
     SELECT z.id, z.name
-    FROM raw_vision_rogers.zones z
-    JOIN raw_vision_rogers.cameras c ON z.camera_id = c.id
+    FROM raw_vision_socado.zones z
+    JOIN raw_vision_socado.cameras c ON z.camera_id = c.id
     WHERE c.store_id = %s
 ),
 -- Muestras de ocupación dentro de la hora (publicadas por el sampler)
 samples_in_hour AS (
     SELECT s.zone_id, s.occupancy, s.ts
-    FROM raw_vision_rogers.zone_occupancy_samples s, time_range tr
+    FROM raw_vision_socado.zone_occupancy_samples s, time_range tr
     WHERE s.ts >= tr.start_ts_utc AND s.ts < tr.end_ts_utc
 ),
  latest_snapshot AS (
@@ -48,7 +48,7 @@ samples_in_hour AS (
          s.zone_id,
          s.snapshot_ts,
          s.occupancy
-     FROM raw_vision_rogers.zone_occupancy_snapshots s, time_range
+     FROM raw_vision_socado.zone_occupancy_snapshots s, time_range
      WHERE s.snapshot_ts <= start_ts_utc
      ORDER BY s.zone_id, s.snapshot_ts DESC
  ),
@@ -57,7 +57,7 @@ samples_in_hour AS (
      SELECT
          ze.zone_id,
          SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END) AS change
-     FROM raw_vision_rogers.zone_events ze
+     FROM raw_vision_socado.zone_events ze
      LEFT JOIN latest_snapshot ls ON ls.zone_id = ze.zone_id, time_range
      WHERE ze.ts >= COALESCE(ls.snapshot_ts, TIMESTAMP 'epoch')
        AND ze.ts <  start_ts_utc
@@ -76,7 +76,7 @@ samples_in_hour AS (
          zone_id,
          track_id,
          event
-     FROM raw_vision_rogers.zone_events, time_range
+     FROM raw_vision_socado.zone_events, time_range
      WHERE ts >= start_ts_utc AND ts < end_ts_utc
  ),
  events_with_seed AS (
@@ -164,7 +164,7 @@ dwell_times AS (
             track_id,
             ts as enter_ts,
             ROW_NUMBER() OVER (PARTITION BY zone_id, track_id ORDER BY ts) as enter_seq
-        FROM raw_vision_rogers.zone_events, time_range tr
+        FROM raw_vision_socado.zone_events, time_range tr
         WHERE event = 'enter'
         AND ts >= tr.start_ts_utc AND ts < tr.end_ts_utc
     ),
@@ -174,7 +174,7 @@ dwell_times AS (
             track_id,
             ts as exit_ts,
             ROW_NUMBER() OVER (PARTITION BY zone_id, track_id ORDER BY ts) as exit_seq
-        FROM raw_vision_rogers.zone_events, time_range tr
+        FROM raw_vision_socado.zone_events, time_range tr
         WHERE event = 'exit'
         AND ts >= tr.start_ts_utc AND ts < tr.end_ts_utc
     ),
@@ -303,7 +303,7 @@ def cleanup_raw_data(conn, end_of_hour_utc: datetime):
                         s.zone_id,
                         s.snapshot_ts,
                         s.occupancy
-                    FROM raw_vision_rogers.zone_occupancy_snapshots s
+                    FROM raw_vision_socado.zone_occupancy_snapshots s
                     WHERE s.snapshot_ts <= %s
                     ORDER BY s.zone_id, s.snapshot_ts DESC
                 ),
@@ -311,14 +311,14 @@ def cleanup_raw_data(conn, end_of_hour_utc: datetime):
                     SELECT
                         ze.zone_id,
                         SUM(CASE WHEN ze.event = 'enter' THEN 1 ELSE -1 END) AS change
-                    FROM raw_vision_rogers.zone_events ze
+                    FROM raw_vision_socado.zone_events ze
                     LEFT JOIN latest_snapshot ls ON ls.zone_id = ze.zone_id
                     WHERE ze.ts >= COALESCE(ls.snapshot_ts, TIMESTAMP 'epoch')
                       AND ze.ts <  %s
                     GROUP BY ze.zone_id
                 ),
                 zones AS (
-                    SELECT DISTINCT zone_id FROM raw_vision_rogers.zone_events
+                    SELECT DISTINCT zone_id FROM raw_vision_socado.zone_events
                 ),
                 snapshot_data AS (
                     SELECT
@@ -329,7 +329,7 @@ def cleanup_raw_data(conn, end_of_hour_utc: datetime):
                     LEFT JOIN latest_snapshot ls ON ls.zone_id = z.zone_id
                     LEFT JOIN changes_to_cutoff c ON c.zone_id = z.zone_id
                 )
-                INSERT INTO raw_vision_rogers.zone_occupancy_snapshots (zone_id, snapshot_ts, occupancy)
+                INSERT INTO raw_vision_socado.zone_occupancy_snapshots (zone_id, snapshot_ts, occupancy)
                 SELECT zone_id, snapshot_ts, occupancy
                 FROM snapshot_data
                 ON CONFLICT (zone_id, snapshot_ts) DO UPDATE SET occupancy = EXCLUDED.occupancy;
@@ -345,9 +345,9 @@ def cleanup_raw_data(conn, end_of_hour_utc: datetime):
             for iteration in range(max_iterations):
                 cur.execute("""
                     WITH deleted AS (
-                        DELETE FROM raw_vision_rogers.zone_events 
+                        DELETE FROM raw_vision_socado.zone_events 
                         WHERE ctid IN (
-                            SELECT ctid FROM raw_vision_rogers.zone_events 
+                            SELECT ctid FROM raw_vision_socado.zone_events 
                             WHERE ts < %s 
                             LIMIT %s
                         )
