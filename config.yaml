@@ -20,7 +20,7 @@ tenants:
         rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/202"        
         fps: 25
         zones:
-          - id: 1
+          - id: 2
             name: "Mesas Laterales"
             metrics: ["people_inside", "dwell"]
             polygon: [[104, 255], [462, 29], [623, 253], [559, 305], [154, 352], [104, 257]]
@@ -31,19 +31,18 @@ tenants:
         rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/402"        
         fps: 25
         zones:
-          - id: 1
+          - id: 3
             name: "Mesas Escaleras"
             metrics: ["people_inside", "dwell"]
             polygon: [[300, 124], [294, 217], [442, 346], [515, 350], [599, 288], [589, 197], [301, 123]]
             ghost_timeout_minutes: 30
-
       - id: 4
         name: "Mesas Escaleras Izquierda"
         location: "Cerro Verde"
         rtsp_url: "rtsp://TryClave:$0c4d02025*@190.153.22.158:554/Streaming/Channels/602"        
         fps: 25
         zones:
-          - id: 1
+          - id: 4
             name: "Mesas Escaleras Izquierda"
             metrics: ["people_inside", "dwell"]
             polygon: [[324, 54], [399, 88], [198, 349], [44, 333], [17, 229], [318, 51]]
