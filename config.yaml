@@ -47,4 +47,85 @@ tenants:
             metrics: ["people_inside", "dwell"]
             polygon: [[324, 54], [399, 88], [198, 349], [44, 333], [17, 229], [318, 51]]
             ghost_timeout_minutes: 30
-     
+
+  - id: 2
+    name: "Socado"
+    store_id: "51099d20-1dd5-4654-81e2-81569cda44b5"
+    cameras:
+      - id: 5
+        name: "Mesas Coworking"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/601"        
+        fps: 25
+        zones:
+          - id: 5
+            name: "Mesas Coworking"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[375, 432], [790, 334], [1236, 666], [1345, 736], [1486, 535], [1799, 556], [1912, 633], [1886, 1047], [545, 1051], [373, 434]]
+            ghost_timeout_minutes: 30
+      - id: 6
+        name: "Kids Zone"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/801"        
+        fps: 25
+        zones:
+          - id: 6
+            name: "Kids Zone"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[788, 509], [1193, 435], [1702, 633], [1506, 1069], [1126, 1064], [765, 772], [782, 514]]
+            ghost_timeout_minutes: 30
+      - id: 7
+        name: "Mesas Cerradas"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/1101"        
+        fps: 25
+        zones:
+          - id: 7
+            name: "Mesas Cerradas"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[240, 195], [934, 88], [1180, 86], [1400, 150], [1801, 308], [1680, 551], [1370, 425], [1136, 530], [373, 849], [235, 196]]
+            ghost_timeout_minutes: 30
+      - id: 8
+        name: "Puerta Ofi"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/1201"        
+        fps: 25
+        zones:
+          - id: 8
+            name: "Puerta Ofi"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[297, 725], [754, 657], [875, 232], [1326, 301], [1911, 718], [1888, 1055], [376, 1059], [295, 728]]
+            ghost_timeout_minutes: 30
+      - id: 9
+        name: "Sala Principal"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/1301"        
+        fps: 25
+        zones:
+          - id: 9
+            name: "Grab and Go"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[549, 765], [817, 580], [721, 284], [332, 378], [412, 723], [551, 767]]
+            ghost_timeout_minutes: 30
+      - id: 10
+        name: "Terraza Principal"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/901"        
+        fps: 25
+        zones:
+          - id: 10
+            name: "Terraza Principal"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[12, 558], [262, 230], [438, 165], [1380, 127], [1564, 166], [1913, 657], [1894, 1048], [24, 1056], [10, 564]]
+            ghost_timeout_minutes: 30
+      - id: 11
+        name: "Terraza Entrada"
+        location: "La Trinidad"
+        rtsp_url: "rtsp://TryClave:$0c4d02025*@170.246.79.29:554/Streaming/Channels/701"        
+        fps: 25
+        zones:
+          - id: 11
+            name: "Terraza Entrada"
+            metrics: ["people_inside", "dwell"]
+            polygon: [[22, 440], [460, 326], [1276, 753], [1066, 1068], [242, 1067], [12, 440]]
+            ghost_timeout_minutes: 30
