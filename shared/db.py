@@ -47,16 +47,20 @@ def get_conn(max_retries: int = 3):
             try:
                 conn = _POOL.getconn()
             except Exception as e:
-                # Manejar errores del pool (incluyendo pool agotado)
+                # Manejar errores del pool (incluyendo pool agotado o cerrado)
                 error_msg = str(e).lower()
-                if "pool" in error_msg and ("exhausted" in error_msg or "timeout" in error_msg):
-                    print(f"Pool agotado (intento {attempt + 1}/{max_retries}). Esperando...")
+                if "pool" in error_msg and ("exhausted" in error_msg or "timeout" in error_msg or "closed" in error_msg):
+                    print(f"Pool error (intento {attempt + 1}/{max_retries}): {e}")
                     if attempt < max_retries - 1:
                         time.sleep(1 + attempt)  # Backoff progresivo
+                        # Recrear el pool si está cerrado
+                        if "closed" in error_msg:
+                            print("Pool cerrado. Recreando pool...")
+                            init_pool()
                         continue
                     else:
-                        # Si el pool está agotado después de varios intentos, recrearlo
-                        print("Pool agotado después de varios intentos. Recreando pool...")
+                        # Si el pool está agotado/cerrado después de varios intentos, recrearlo
+                        print("Pool error después de varios intentos. Recreando pool...")
                         init_pool()
                         conn = _POOL.getconn()
                 else:
@@ -123,6 +127,7 @@ def get_conn(max_retries: int = 3):
                 raise
         except Exception as e:
             # Manejar cualquier otro error
+            error_msg = str(e).lower()
             print(f"Error inesperado obteniendo conexión (intento {attempt + 1}/{max_retries}): {e}")
             if conn:
                 try:
@@ -132,6 +137,10 @@ def get_conn(max_retries: int = 3):
             
             if attempt < max_retries - 1:
                 time.sleep(1)
+                # Recrear pool si está cerrado o hay error SSL
+                if "closed" in error_msg or "ssl" in error_msg:
+                    print("Recreando pool de conexiones...")
+                    init_pool()
                 conn = None
             else:
                 raise

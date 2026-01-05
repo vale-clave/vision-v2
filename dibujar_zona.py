@@ -1,6 +1,6 @@
 import cv2
 
-IMAGE_PATH = "images/mesas-escaleras-izq.png"  # cambia a la ruta real
+IMAGE_PATH = "images/trinidad-terraza.png"  # cambia a la ruta real
 
 points = []
 

@@ -201,11 +201,16 @@ final_metrics AS (
     SELECT
         sz.id as zone_id,
         sz.name as zone_name,
-        GREATEST(0, COALESCE(om.avg_occupancy, GREATEST(0, so.occupancy), 0)) as avg_occupancy,
-        GREATEST(0, COALESCE(om.max_occupancy, GREATEST(0, so.occupancy), 0)) as max_occupancy,
+        -- FIX: Solo usar samples reales, NO starting_occupancy (que puede acumularse incorrectamente)
+        -- Si no hay samples, retornar NULL para no insertar datos incorrectos
+        om.avg_occupancy,
+        -- Limite máximo de 100 como safety check adicional
+        LEAST(om.max_occupancy, 100) as max_occupancy,
         COALESCE(MAX(amp.avg_minute_peak), 0) as avg_minute_peak,
         COALESCE(AVG(dt.dwell_seconds), 0) as avg_dwell_seconds,
-        COALESCE(e.total_entries, 0) as total_entries
+        COALESCE(e.total_entries, 0) as total_entries,
+        -- Flag para saber si hay datos válidos de samples
+        (om.avg_occupancy IS NOT NULL) as has_samples
     FROM store_zones sz
     LEFT JOIN starting_occupancy so ON sz.id = so.zone_id
     LEFT JOIN occupancy_metrics om ON sz.id = om.zone_id
@@ -222,8 +227,9 @@ SELECT
     %s, -- store_id
     fm.zone_id,
     fm.zone_name,
-    fm.avg_occupancy,
-    fm.max_occupancy,
+    -- Si no hay samples, usar 0 en lugar de NULL (más seguro que starting_occupancy)
+    COALESCE(fm.avg_occupancy, 0) as avg_occupancy,
+    COALESCE(fm.max_occupancy, 0) as max_occupancy,
     fm.avg_minute_peak,
     fm.avg_dwell_seconds,
     fm.total_entries
