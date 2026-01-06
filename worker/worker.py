@@ -129,6 +129,8 @@ TRACK_IOU_THRESHOLD = 0.7
 EVENT_COOLDOWN_SECONDS = 5.0
 MIN_TRACK_AGE_FOR_ENTER = 1.0
 MIN_DWELL_TIME_SECONDS = 3.0
+# Para zonas de tipo "crossings" (ej: puertas), usamos un dwell mínimo más bajo
+MIN_DWELL_TIME_CROSSINGS = 0.5
 
 # Estado de tracking por zona: {zone_id: {track_id: enter_timestamp}}
 zone_track_states = {zone_id: {} for zone_id in ZONES_CONFIG.keys()}
@@ -308,7 +310,10 @@ while True:
                     # Si lleva fuera lo suficiente, confirmar salida
                     if current_time - pending_since >= ZONE_EXIT_GRACE_SECONDS:
                         time_in_zone_total = max(0.0, pending_since - enter_time)  # medir hasta el último instante dentro
-                        if time_in_zone_total >= MIN_DWELL_TIME_SECONDS:
+                        # Para zonas de tipo "crossings" (puertas, pasillos), usamos un dwell mínimo más bajo
+                        zone_metrics = zone_info.get('metrics', [])
+                        min_dwell = MIN_DWELL_TIME_CROSSINGS if 'crossings' in zone_metrics else MIN_DWELL_TIME_SECONDS
+                        if time_in_zone_total >= min_dwell:
                             print(f"EVENT: Track {tracker_id} EXITED zone {zone_id} ('{zone_info['name']}') [dwell: {time_in_zone_total:.1f}s]")
                             evt = {
                                 "tenant_id": TENANT_ID,
@@ -318,13 +323,13 @@ while True:
                                 "event": "exit",
                                 "ts": datetime.utcnow().isoformat() + "Z",
                             }
-                            if 'dwell' in zone_info.get('metrics', []):
+                            if 'dwell' in zone_metrics:
                                 evt['dwell_seconds'] = time_in_zone_total
                             redis_client.rpush(DETECTIONS_QUEUE_KEY, json.dumps(evt))
                             last_event_time[event_key] = current_time
                         else:
                             # Dwell time muy corto, probablemente falso positivo
-                            print(f"SKIP: Track {tracker_id} salió de zona {zone_id} con dwell muy corto ({time_in_zone_total:.1f}s < {MIN_DWELL_TIME_SECONDS}s)")
+                            print(f"SKIP: Track {tracker_id} salió de zona {zone_id} con dwell muy corto ({time_in_zone_total:.1f}s < {min_dwell}s)")
                         tracks_to_remove.append(tracker_id)
                         # Limpiar salida pendiente
                         if tracker_id in _zone_pending_exit[zone_id]:

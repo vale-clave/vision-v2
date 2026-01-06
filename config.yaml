@@ -93,7 +93,7 @@ tenants:
         zones:
           - id: 8
             name: "Puerta Ofi"
-            metrics: ["people_inside", "dwell"]
+            metrics: ["crossings"]
             polygon: [[297, 725], [754, 657], [875, 232], [1326, 301], [1911, 718], [1888, 1055], [376, 1059], [295, 728]]
             ghost_timeout_minutes: 30
       - id: 9
