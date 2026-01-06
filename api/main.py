@@ -50,18 +50,29 @@ def health():
 
 def _snapshot():
     """
-    Calcula un snapshot de las métricas actuales (ocupación y dwell time)
+    Calcula un snapshot de las métricas actuales (ocupación, dwell time, cruces)
     consultando la base de datos.
     Implementa reintentos para manejar conexiones de BD inestables.
     """
     now = datetime.utcnow()
     metrics = {}
+    zone_metrics_config = {}  # {zone_id: ["crossings"] o ["people_inside", "dwell"]}
     
     max_retries = 3
     for attempt in range(max_retries):
         try:
             with get_conn() as conn:
                 with conn.cursor() as cur:
+                    # 0. Cargar configuración de métricas por zona
+                    cur.execute(
+                        """
+                        SELECT id, metrics FROM raw_vision_socado.zones;
+                        """
+                    )
+                    for row in cur.fetchall():
+                        zone_id, zone_metrics = row
+                        zone_metrics_config[zone_id] = zone_metrics or []
+
                     # 1. Ocupación robusta basada en línea de tiempo (evita reuse de track_id)
                     #    Calcula ocupación como estado inicial + cambios netos en una ventana corta
                     cur.execute(
@@ -115,7 +126,10 @@ def _snapshot():
                         zone_id, occupancy = row
                         if zone_id not in metrics:
                             metrics[zone_id] = {}
-                        metrics[zone_id]['occupancy'] = occupancy
+                        # Solo incluir occupancy si la zona NO es de tipo crossings
+                        zone_cfg = zone_metrics_config.get(zone_id, [])
+                        if 'crossings' not in zone_cfg:
+                            metrics[zone_id]['occupancy'] = occupancy
 
                     # 2. Obtener el dwell time promedio de los últimos 5 minutos
                     # Nota: El dwell time ahora se calcula durante la agregación horaria,
@@ -133,8 +147,31 @@ def _snapshot():
                         zone_id, avg_dwell = row
                         if zone_id not in metrics:
                             metrics[zone_id] = {}
-                        if avg_dwell is not None:
+                        zone_cfg = zone_metrics_config.get(zone_id, [])
+                        # Solo incluir dwell si la zona tiene métrica dwell (no crossings)
+                        if avg_dwell is not None and 'dwell' in zone_cfg:
                             metrics[zone_id]['avg_dwell_seconds_5m'] = avg_dwell
+
+                    # 3. Para zonas de tipo "crossings": obtener total de cruces del día actual
+                    cur.execute(
+                        """
+                        SELECT 
+                            zone_id, 
+                            COALESCE(SUM(total_entries), 0) AS crossings_today
+                        FROM analytics.fact_vision_metrics_hourly
+                        WHERE hour >= DATE_TRUNC('day', NOW())
+                        GROUP BY zone_id;
+                        """
+                    )
+                    crossings_rows = cur.fetchall()
+                    for row in crossings_rows:
+                        zone_id, crossings_today = row
+                        zone_cfg = zone_metrics_config.get(zone_id, [])
+                        # Solo incluir crossings para zonas de tipo crossings
+                        if 'crossings' in zone_cfg:
+                            if zone_id not in metrics:
+                                metrics[zone_id] = {}
+                            metrics[zone_id]['crossings_today'] = int(crossings_today)
             
             # Si todo fue exitoso, salimos del bucle
             break
